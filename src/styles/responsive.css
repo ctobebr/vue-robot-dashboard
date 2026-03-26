@@ -1,0 +1,195 @@
+/* ==============================================
+   Responsive Styles - 响应式样式系统
+   Breakpoints:
+   - 320px (Mobile - 手机)
+   - 768px (Tablet - 平板)
+   - 1024px (Small Desktop - 小屏桌面)
+   - 1440px (Large Desktop - 大屏桌面)
+   ============================================== */
+
+/* CSS Variables for consistent responsive scaling */
+:root {
+  --base-spacing: 20px;
+  --base-font-size: 14px;
+  --icon-size-md: 18px;
+  --icon-size-lg: 30px;
+  --component-height: 40px;
+  --sidebar-width: 350px;
+  --header-height: 40px;
+  --border-radius: 8px;
+  --button-height: 32px;
+}
+
+/* ==============================================
+   320px and below - 小屏手机
+   ============================================== */
+@media screen and (max-width: 320px) {
+  :root {
+    --base-spacing: 10px;
+    --base-font-size: 12px;
+    --icon-size-md: 14px;
+    --icon-size-lg: 24px;
+    --component-height: 32px;
+    --sidebar-width: 280px;
+    --header-height: 36px;
+    --border-radius: 6px;
+    --button-height: 28px;
+  }
+
+  /* Smaller touch targets for mobile */
+  button, .icon-button, .toolbar-btn {
+    min-width: 36px !important;
+    min-height: 36px !important;
+  }
+}
+
+/* ==============================================
+   321px - 768px - 手机/小平板
+   ============================================== */
+@media screen and (min-width: 321px) and (max-width: 768px) {
+  :root {
+    --base-spacing: 12px;
+    --base-font-size: 13px;
+    --icon-size-md: 16px;
+    --icon-size-lg: 28px;
+    --component-height: 36px;
+    --sidebar-width: 300px;
+    --header-height: 38px;
+    --border-radius: 6px;
+    --button-height: 30px;
+  }
+
+  /* Touch-friendly sizing */
+  button, .icon-button, .toolbar-btn {
+    min-width: 40px !important;
+    min-height: 40px !important;
+  }
+}
+
+/* ==============================================
+   769px - 1024px - 平板/小屏桌面
+   ============================================== */
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  :root {
+    --base-spacing: 16px;
+    --base-font-size: 14px;
+    --icon-size-md: 18px;
+    --icon-size-lg: 30px;
+    --component-height: 38px;
+    --sidebar-width: 320px;
+    --header-height: 40px;
+    --border-radius: 8px;
+    --button-height: 32px;
+  }
+}
+
+/* ==============================================
+   1025px - 1440px - 标准桌面
+   ============================================== */
+@media screen and (min-width: 1025px) and (max-width: 1440px) {
+  :root {
+    --base-spacing: 20px;
+    --base-font-size: 14px;
+    --icon-size-md: 18px;
+    --icon-size-lg: 30px;
+    --component-height: 40px;
+    --sidebar-width: 350px;
+    --header-height: 40px;
+    --border-radius: 8px;
+    --button-height: 32px;
+  }
+}
+
+/* ==============================================
+   1441px and above - 大屏/超宽屏
+   ============================================== */
+@media screen and (min-width: 1441px) {
+  :root {
+    --base-spacing: 24px;
+    --base-font-size: 15px;
+    --icon-size-md: 20px;
+    --icon-size-lg: 36px;
+    --component-height: 44px;
+    --sidebar-width: 400px;
+    --header-height: 44px;
+    --border-radius: 10px;
+    --button-height: 36px;
+  }
+}
+
+/* ==============================================
+   Global Responsive Helpers - 全局响应式工具类
+   ============================================== */
+
+/* Hide on mobile */
+@media screen and (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+
+  /* Stack elements vertically on mobile */
+  .stack-mobile {
+    flex-direction: column !important;
+    gap: var(--base-spacing) !important;
+  }
+}
+
+/* Show only on mobile */
+@media screen and (min-width: 769px) {
+  .show-mobile {
+    display: none !important;
+  }
+}
+
+/* Touch optimizations for mobile */
+@media screen and (max-width: 768px) {
+  /* Increase touch target size */
+  [role="button"],
+  button,
+  .clickable {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent text selection on buttons */
+  button, .icon-button, .toolbar-btn {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Optimize font rendering */
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Landscape orientation adjustments */
+@media screen and (max-width: 768px) and (orientation: landscape) {
+  :root {
+    --component-height: 32px;
+    --header-height: 34px;
+  }
+}
+
+/* High DPI/Retina display optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* Ensure crisp rendering on high-DPI screens */
+  img,
+  svg,
+  canvas {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

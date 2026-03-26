@@ -1,0 +1,45 @@
+{
+  "name": "vue-3d-viewer",
+  "private": true,
+  "version": "3.3.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src",
+    "prettier": "prettier --check \"**/*.{js,jsx,vue}\"",
+    "prettier:write": "prettier --write \"**/*.{js,jsx,vue}\"",
+    "test": "npm run prettier && npm run lint && npm run build"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "@loaders.gl/core": "2.3.13",
+    "@loaders.gl/draco": "2.3.13",
+    "@phosphor-icons/vue": "^2.1.6",
+    "@tresjs/cientos": "^4.0.1",
+    "@tresjs/core": "^4.2.8",
+    "axios": "^1.5.1",
+    "clsx": "^2.0.0",
+    "dayjs": "^1.11.19",
+    "element-plus": "^2.8.8",
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
+    "motion-vue": "^0.0.1",
+    "pinia": "^2.2.8",
+    "simplebar-vue": "^2.4.2",
+    "socket.io-client": "^4.7.2",
+    "three": "^0.156.1",
+    "three-stdlib": "^2.29.0",
+    "vue": "^3.5.13",
+    "vue-i18n": "^9.14.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "eslint": "^8.41.0",
+    "eslint-plugin-vue": "^9.29.0",
+    "prettier": "^2.8.8",
+    "vite": "^6.0.3"
+  }
+}
