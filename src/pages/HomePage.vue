@@ -57,9 +57,12 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import axios from 'axios'
 import { useDeviceStore } from '@/stores/device'
 import { useSocket } from '@/composables/useSocket'
+import { useRobotControl } from '@/composables/useRobotControl'
+import { useMediaControl } from '@/composables/useMediaControl'
+import { useVideoStream } from '@/composables/useVideoStream'
+import request from '@/services/request'
 import Toolbar from '@/components/Toolbar/Toolbar.vue'
 import Header from '@/components/Header/Header.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
@@ -70,6 +73,7 @@ import Joystick from '@/components/Control/Joystick.vue'
 import MediaControl from '@/components/Control/MediaControl.vue'
 import VideoDisplay from '@/components/Control/VideoDisplay.vue'
 
+// 布局相关状态
 const openSidebar = ref(false)
 const openCommonSettings = ref(false)
 const openDataListModal = ref(false)
@@ -78,48 +82,51 @@ const openDataListModal = ref(false)
 const videoSrc = ref('')
 const isVideoConnected = ref(false)
 
-// 控制相关事件处理
+// 初始化 composables
+const { sendMove, sendStop, connect: connectRobot } = useRobotControl()
+const { isRecording, capture, startRecord, stopRecord, setRecordingState } = useMediaControl()
+const { refresh: refreshVideo, setConnected: setVideoConnected } = useVideoStream()
+
+// 摇杆事件处理
 function handleLeftJoystickMove(direction) {
-  console.log('Left joystick move:', direction)
-  // 这里可以添加与后端通信的逻辑
+  sendMove(direction)
 }
 
 function handleLeftJoystickStop() {
-  console.log('Left joystick stop')
-  // 这里可以添加与后端通信的逻辑
+  sendStop('left')
 }
 
 function handleRightJoystickMove(direction) {
-  console.log('Right joystick move:', direction)
-  // 这里可以添加与后端通信的逻辑
+  sendMove(direction)
 }
 
 function handleRightJoystickStop() {
-  console.log('Right joystick stop')
-  // 这里可以添加与后端通信的逻辑
+  sendStop('right')
 }
 
-function handleCameraClick(active) {
-  console.log('Camera clicked:', active)
-  // 这里可以添加与后端通信的逻辑
+// 媒体控制事件处理
+async function handleCameraClick() {
+  await capture()
 }
 
-function handleRecorderClick(active) {
-  console.log('Recorder clicked:', active)
-  // 这里可以添加与后端通信的逻辑
+async function handleRecorderClick(active) {
+  if (active) {
+    await startRecord()
+  } else {
+    await stopRecord()
+  }
 }
 
+// 视频事件处理
 function handleVideoRefresh() {
-  console.log('Video refresh')
-  // 这里可以添加与后端通信的逻辑
+  refreshVideo()
 }
 
 function handleVideoFullscreen() {
-  console.log('Video fullscreen')
-  // 这里可以添加全屏逻辑
+  // 全屏逻辑
 }
 
-// 处理打开常用设置 - 关闭其他组件
+// 布局控制
 function handleOpenCommonSettings(value) {
   if (value) {
     openSidebar.value = false
@@ -128,7 +135,6 @@ function handleOpenCommonSettings(value) {
   openCommonSettings.value = value
 }
 
-// 处理打开数据列表 - 关闭其他组件
 function handleOpenDataListModal(value) {
   if (value) {
     openSidebar.value = false
@@ -137,7 +143,6 @@ function handleOpenDataListModal(value) {
   openDataListModal.value = value
 }
 
-// 处理切换侧边栏 - 关闭其他组件
 function handleToggleSidebar() {
   const newValue = !openSidebar.value
   if (newValue) {
@@ -147,6 +152,7 @@ function handleToggleSidebar() {
   openSidebar.value = newValue
 }
 
+// 设备状态相关
 const deviceStore = useDeviceStore()
 const { socket } = useSocket()
 
@@ -157,10 +163,8 @@ const shouldExecuteMapping = ref(false)
 
 function mappingStart() {
   if (shouldExecuteMapping.value) {
-    return axios.post(
-      `http://${window.location.hostname}:8000/api/devices/${
-        import.meta.env.VITE_DEVICE_SN
-      }/mapping_start`
+    return request.post(
+      `/devices/${import.meta.env.VITE_DEVICE_SN}/mapping_start`
     ).then((response) => response.data)
     .catch((error) => {
       console.error('POST请求出错:', error)
@@ -185,6 +189,9 @@ let recordStatusListener = null
 let disconnectListener = null
 
 onMounted(() => {
+  // 连接机器人控制
+  connectRobot()
+
   if (socket.value) {
     intervalId = setInterval(() => {
       debounce(mappingStart, 1000)()
@@ -220,7 +227,9 @@ onMounted(() => {
 
     recordStatusListener = (msg) => {
       const { value } = msg
-      deviceStore.setRecording(value === 1)
+      const isRecordingValue = value === 1
+      setRecordingState(isRecordingValue)
+      deviceStore.setRecording(isRecordingValue)
     }
 
     disconnectListener = () => {

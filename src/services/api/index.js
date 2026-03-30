@@ -1,10 +1,13 @@
 import deviceAPI from './device'
+import robotAPI from './robot'
 
 // 统一导出所有API模块
 export {
-  deviceAPI
+  deviceAPI,
+  robotAPI
 }
 
 export default {
-  device: deviceAPI
+  device: deviceAPI,
+  robot: robotAPI
 }

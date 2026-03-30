@@ -79,10 +79,10 @@
 <script setup>
 import { ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import axios from 'axios'
 import dayjs from 'dayjs'
 import { saveAs } from 'file-saver'
 import { useSocket } from '@/composables/useSocket'
+import { deviceAPI } from '@/services/api'
 import { ElMessageBox } from 'element-plus'
 import { PhDownload, PhTrash } from '@phosphor-icons/vue'
 
@@ -114,10 +114,10 @@ const socketListeners = {}
 
 async function fetchFileData() {
   try {
-    const { data } = await axios.get(`http://${window.location.hostname}:8000/api/dataDetails`)
+    const response = await deviceAPI.getDataDetails()
     const files = []
 
-    data.data.forEach((item) => {
+    response.data.data.forEach((item) => {
       const name = item.name
       const size = item.size
       const dateTimeStr = name.slice(0, 14)
@@ -187,9 +187,7 @@ function handleDeleteDataModal(name) {
 
 async function deleteData(name) {
   try {
-    const res = await axios.delete(`http://${window.location.hostname}:8000/api/deleteData`, {
-      data: { names: [name] }
-    })
+    const res = await deviceAPI.deleteData([name])
     if (res.status === 200) {
       await refreshDataList()
     }
@@ -223,10 +221,7 @@ async function handleDownloadData(name) {
 
 async function downloadFile(name) {
   try {
-    const url = `http://${window.location.hostname}:8000/api/${import.meta.env.VITE_DEVICE_SN}/data/download/${name}`
-    const res = await axios.get(url, {
-      responseType: 'blob'
-    })
+    const res = await deviceAPI.downloadData(import.meta.env.VITE_DEVICE_SN, name)
     saveAs(res.data, `${name}.zip`)
   } catch (error) {
     console.error('Error downloading data:', error)
