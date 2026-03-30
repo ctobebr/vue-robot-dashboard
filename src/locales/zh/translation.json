@@ -96,5 +96,11 @@
     "viewFollow": "视角跟随",
     "switchView": "切换视角",
     "firstPerson": "第一人称",
-    "thirdPerson": "第三人称"
+    "thirdPerson": "第三人称",
+    "camera": "相机",
+    "recorder": "录制器",
+    "videoFeed": "视频流",
+    "noVideoFeed": "无视频流",
+    "connected": "已连接",
+    "disconnected": "未连接"
 }

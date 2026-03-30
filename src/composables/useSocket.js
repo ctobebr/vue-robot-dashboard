@@ -1,3 +1,11 @@
+// ### 1.1 Socket连接管理修改
+
+// #### 修改原因：
+
+// - 适配后端重构后的Socket服务地址和端口
+// - 确保与后端新的Socket事件格式兼容
+
+
 import { io } from 'socket.io-client'
 import { ref, onUnmounted, provide, inject } from 'vue'
 

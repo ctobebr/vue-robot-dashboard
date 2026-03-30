@@ -96,5 +96,11 @@
     "viewFollow": "View Follow",
     "switchView": "Switch View",
     "firstPerson": "First Person",
-    "thirdPerson": "Third Person"
+    "thirdPerson": "Third Person",
+    "camera": "Camera",
+    "recorder": "Recorder",
+    "videoFeed": "Video Feed",
+    "noVideoFeed": "No Video Feed",
+    "connected": "Connected",
+    "disconnected": "Disconnected"
 }

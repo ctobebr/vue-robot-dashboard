@@ -14,6 +14,44 @@
     <CommonSettings :opened="openCommonSettings" @close="openCommonSettings = false" />
     <DataListModal :opened="openDataListModal" @close="openDataListModal = false" />
     <Viewer />
+    
+    <!-- 视频显示区域 -->
+    <div class="control-panel video-panel">
+      <VideoDisplay 
+        :videoSrc="videoSrc"
+        :isConnected="isVideoConnected"
+        @refresh="handleVideoRefresh"
+        @fullscreen="handleVideoFullscreen"
+      />
+    </div>
+    
+    <!-- 左下角Joystick -->
+    <div class="control-panel joystick-left">
+      <Joystick 
+        :size="120"
+        color="#409eff"
+        @move="handleLeftJoystickMove"
+        @stop="handleLeftJoystickStop"
+      />
+    </div>
+    
+    <!-- 右下角Joystick -->
+    <div class="control-panel joystick-right">
+      <Joystick 
+        :size="120"
+        color="#67c23a"
+        @move="handleRightJoystickMove"
+        @stop="handleRightJoystickStop"
+      />
+    </div>
+    
+    <!-- 右侧媒体控制 -->
+    <div class="control-panel media-panel">
+      <MediaControl 
+        @camera-click="handleCameraClick"
+        @recorder-click="handleRecorderClick"
+      />
+    </div>
   </div>
 </template>
 
@@ -28,10 +66,58 @@ import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import CommonSettings from '@/components/Common/CommonSettings.vue'
 import DataListModal from '@/components/Modals/DataListModal.vue'
 import Viewer from '@/components/Viewer/Viewer.vue'
+import Joystick from '@/components/Control/Joystick.vue'
+import MediaControl from '@/components/Control/MediaControl.vue'
+import VideoDisplay from '@/components/Control/VideoDisplay.vue'
 
 const openSidebar = ref(false)
 const openCommonSettings = ref(false)
 const openDataListModal = ref(false)
+
+// 视频相关状态
+const videoSrc = ref('')
+const isVideoConnected = ref(false)
+
+// 控制相关事件处理
+function handleLeftJoystickMove(direction) {
+  console.log('Left joystick move:', direction)
+  // 这里可以添加与后端通信的逻辑
+}
+
+function handleLeftJoystickStop() {
+  console.log('Left joystick stop')
+  // 这里可以添加与后端通信的逻辑
+}
+
+function handleRightJoystickMove(direction) {
+  console.log('Right joystick move:', direction)
+  // 这里可以添加与后端通信的逻辑
+}
+
+function handleRightJoystickStop() {
+  console.log('Right joystick stop')
+  // 这里可以添加与后端通信的逻辑
+}
+
+function handleCameraClick(active) {
+  console.log('Camera clicked:', active)
+  // 这里可以添加与后端通信的逻辑
+}
+
+function handleRecorderClick(active) {
+  console.log('Recorder clicked:', active)
+  // 这里可以添加与后端通信的逻辑
+}
+
+function handleVideoRefresh() {
+  console.log('Video refresh')
+  // 这里可以添加与后端通信的逻辑
+}
+
+function handleVideoFullscreen() {
+  console.log('Video fullscreen')
+  // 这里可以添加全屏逻辑
+}
 
 // 处理打开常用设置 - 关闭其他组件
 function handleOpenCommonSettings(value) {
@@ -168,5 +254,103 @@ onUnmounted(() => {
   width: 100vw;
   height: 100vh;
   position: relative;
+}
+
+.control-panel {
+  position: absolute;
+  z-index: 100;
+}
+
+/* 视频显示区域 - 左上角，避开StatsGl */
+.video-panel {
+  top: 120px;
+  left: 140px;
+  width: 480px;
+}
+
+/* 左下角Joystick */
+.joystick-left {
+  bottom: 20px;
+  left: 20px;
+}
+
+/* 右下角Joystick */
+.joystick-right {
+  bottom: 20px;
+  right: 20px;
+}
+
+/* 右侧媒体控制 */
+.media-panel {
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
+}
+
+/* 响应式设计 */
+@media screen and (max-width: 768px) {
+  .video-panel {
+    top: 100px;
+    left: 105px;
+    width: 360px;
+  }
+
+  .joystick-left {
+    bottom: 12px;
+    left: 12px;
+  }
+
+  .joystick-right {
+    bottom: 12px;
+    right: 12px;
+  }
+
+  .media-panel {
+    right: 12px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .video-panel {
+    top: 100px;
+    left: 70px;
+    width: 240px;
+  }
+
+  .joystick-left {
+    bottom: 8px;
+    left: 8px;
+  }
+
+  .joystick-right {
+    bottom: 8px;
+    right: 8px;
+  }
+
+  .media-panel {
+    right: 8px;
+  }
+}
+
+@media screen and (min-width: 1441px) {
+  .video-panel {
+    top: 120px;
+    left: 170px;
+    width: 600px;
+  }
+
+  .joystick-left {
+    bottom: 24px;
+    left: 24px;
+  }
+
+  .joystick-right {
+    bottom: 24px;
+    right: 24px;
+  }
+
+  .media-panel {
+    right: 24px;
+  }
 }
 </style>

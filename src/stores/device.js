@@ -1,5 +1,17 @@
+
+// ### 1.3 设备状态管理修改
+
+// #### 修改原因：
+
+// - 适配后端重构后的设备状态数据格式
+// - 确保状态更新与后端API调用同步
+
+// #### 文件：`vue-3d-viewer/src/stores/device.js`
+
+
 import { defineStore } from 'pinia'
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, watch } from 'vue'
+import { deviceAPI } from '../services/api'
 
 let timer = null
 
@@ -56,6 +68,63 @@ export const useDeviceStore = defineStore('device', () => {
     localStorage.setItem('networks', JSON.stringify(newNetworks))
   }
 
+  // 开始录制
+  async function startRecording(dataName) {
+    try {
+      await deviceAPI.startRecording(sn.value, dataName)
+      recording.value = true
+    } catch (err) {
+      console.error('Failed to start recording:', err)
+    }
+  }
+
+  // 停止录制
+  async function stopRecording() {
+    try {
+      await deviceAPI.stopRecording(sn.value)
+      recording.value = false
+    } catch (err) {
+      console.error('Failed to stop recording:', err)
+    }
+  }
+
+  // 重置映射
+  async function resetMapping() {
+    try {
+      await deviceAPI.resetMapping(sn.value)
+    } catch (err) {
+      console.error('Failed to reset mapping:', err)
+    }
+  }
+
+  // 设置网络
+  async function updateNetworks(newNetworks) {
+    try {
+      await deviceAPI.setNetworks(sn.value, newNetworks)
+      networks.value = newNetworks
+      localStorage.setItem('networks', JSON.stringify(newNetworks))
+    } catch (err) {
+      console.error('Failed to set networks:', err)
+    }
+  }
+
+  // 监听录制状态变化
+  watch(recording, (newValue) => {
+    if (newValue) {
+      if (!timer) {
+        timer = setInterval(() => {
+          recordingTime.value++
+        }, 1000)
+      }
+    } else {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+        recordingTime.value = 0
+      }
+    }
+  })
+
   onUnmounted(() => {
     if (timer) {
       clearInterval(timer)
@@ -75,6 +144,10 @@ export const useDeviceStore = defineStore('device', () => {
     setRecording,
     setUsage,
     setRecordingTime,
-    setNetworks
+    setNetworks,
+    startRecording,
+    stopRecording,
+    resetMapping,
+    updateNetworks
   }
 })

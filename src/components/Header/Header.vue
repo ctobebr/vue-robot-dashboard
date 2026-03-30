@@ -95,9 +95,10 @@
       <div class="icon-button" @click="handleToggleLanguage" :title="t('toggleLanguage')">
         <PhTranslate color="#ffffff" size="18" />
       </div>
-      <div class="icon-button" @click="handleOpenNetworkModal" :title="t('networkSettings')">
+      <!-- 注释网络设置功能 -->
+      <!-- <div class="icon-button" @click="handleOpenNetworkModal" :title="t('networkSettings')">
         <PhShareNetwork color="#ffffff" size="18" />
-      </div>
+      </div> -->
       <div class="icon-button" @click="handleToggleSidebar" :title="t('moreSettings')">
         <PhList color="#ffffff" size="20" />
       </div>
@@ -214,7 +215,7 @@ import { useSocket } from '@/composables/useSocket'
 import { ElNotification } from 'element-plus'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
-import axios from 'axios'
+import { deviceAPI } from '@/services/api'
 import { PhWifiHigh, PhTarget, PhVinylRecord, PhCaretDown, PhTranslate, PhShareNetwork, PhList, PhPower, PhPlay, PhArrowClockwise, PhInfo } from '@phosphor-icons/vue'
 import IpInput from '@/components/Input/IpInput.vue'
 
@@ -298,11 +299,17 @@ function handleOpenRecordingModal() {
   recordingDialogVisible.value = true
 }
 
-function handleStopRecording() {
-  axios.post(
-    `http://${window.location.hostname}:8000/api/devices/${import.meta.env.VITE_DEVICE_SN}/record_stop`,
-    {}
-  )
+async function handleStopRecording() {
+  try {
+    await deviceStore.stopRecording()
+  } catch (error) {
+    ElNotification({
+      title: t('error'),
+      message: error.message || t('unknownError'),
+      type: 'error',
+      duration: 5000
+    })
+  }
 }
 
 function handleOpenResetMappingModal() {
@@ -313,39 +320,47 @@ function handleToggleSidebar() {
   emit('toggle-sidebar')
 }
 
-function handleConfirmRecording() {
+async function handleConfirmRecording() {
   const finalDataName = dataName.value ? `${defaultDataName}_${dataName.value}` : defaultDataName
-  axios.get(`http://${window.location.hostname}:8000/api/dataDetails`)
-    .then((response) => {
-      const data = response.data.data
-      const repetitiveName = data.every((item) => item.name !== finalDataName)
+  try {
+    const response = await deviceAPI.getDataDetails()
+    const data = response.data.data
+    const repetitiveName = data.every((item) => item.name !== finalDataName)
 
-      if (!repetitiveName) {
-        ElNotification({
-          title: t('dataPacketNameDuplicate'),
-          message: t('dataPacketNameDuplicateMessage'),
-          type: 'error',
-          duration: 5000
-        })
-      } else {
-        axios.post(
-          `http://${window.location.hostname}:8000/api/devices/${import.meta.env.VITE_DEVICE_SN}/record_start`,
-          {
-            name: finalDataName
-          }
-        )
-        recordingDialogVisible.value = false
-      }
+    if (!repetitiveName) {
+      ElNotification({
+        title: t('dataPacketNameDuplicate'),
+        message: t('dataPacketNameDuplicateMessage'),
+        type: 'error',
+        duration: 5000
+      })
+    } else {
+      await deviceStore.startRecording(finalDataName)
+      recordingDialogVisible.value = false
+    }
+  } catch (error) {
+    ElNotification({
+      title: t('error'),
+      message: error.message || t('unknownError'),
+      type: 'error',
+      duration: 5000
     })
+  }
 }
 
-function handleConfirmResetMapping() {
-  axios.post(
-    `http://${window.location.hostname}:8000/api/devices/${import.meta.env.VITE_DEVICE_SN}/mapping_reset`,
-    {}
-  )
-  resetMappingDialogVisible.value = false
-  window.location.reload()
+async function handleConfirmResetMapping() {
+  try {
+    await deviceStore.resetMapping()
+    resetMappingDialogVisible.value = false
+    window.location.reload()
+  } catch (error) {
+    ElNotification({
+      title: t('error'),
+      message: error.message || t('unknownError'),
+      type: 'error',
+      duration: 5000
+    })
+  }
 }
 
 function handleOpenNetworkModal() {
@@ -408,32 +423,28 @@ function handleInitializeNetwork() {
   changeIpDialogVisible.value = true
 }
 
-function handleConfirmChangeIp() {
-  const ipSegments = changeIpData.value.ip.split('.')
-  const newGw = `${ipSegments[0]}.${ipSegments[1]}.${ipSegments[2]}.1`
-  deviceStore.setNetworks({
-    ...deviceStore.networks,
-    ip: changeIpData.value.ip,
-    gw: newGw
-  })
-  localStorage.setItem('networks', JSON.stringify({
-    ...deviceStore.networks,
-    ip: changeIpData.value.ip,
-    gw: newGw
-  }))
-  axios.post(
-    `http://${window.location.hostname}:8000/api/devices/${import.meta.env.VITE_DEVICE_SN}/set_networks`,
-    {
-      networks: {
-        ip: changeIpData.value.ip,
-        gw: newGw,
-        netMask: '255.255.255.0',
-        type: changeIpData.value.type
-      }
+async function handleConfirmChangeIp() {
+  try {
+    const ipSegments = changeIpData.value.ip.split('.')
+    const newGw = `${ipSegments[0]}.${ipSegments[1]}.${ipSegments[2]}.1`
+    const newNetworks = {
+      ip: changeIpData.value.ip,
+      gw: newGw,
+      netMask: '255.255.255.0',
+      type: changeIpData.value.type
     }
-  )
-  changeIpDialogVisible.value = false
-  networkDialogVisible.value = false
+    
+    await deviceStore.updateNetworks(newNetworks)
+    changeIpDialogVisible.value = false
+    networkDialogVisible.value = false
+  } catch (error) {
+    ElNotification({
+      title: t('error'),
+      message: error.message || t('unknownError'),
+      type: 'error',
+      duration: 5000
+    })
+  }
 }
 
 onMounted(() => {
