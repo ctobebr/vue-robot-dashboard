@@ -13,13 +13,7 @@ const robotAPI = {
   stopRecord: (sessionId) =>
     request.post('/robot/record/stop', { sessionId, timestamp: Date.now() }),
 
-  // 机器人移动控制
-  move: (data) =>
-    request.post('/robot/move', data),
 
-  // 机器人停止
-  stop: (side) =>
-    request.post('/robot/stop', { side }),
 }
 
 export default robotAPI

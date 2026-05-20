@@ -14,10 +14,10 @@ const defaultAppearance = {
   },
   scaleplate: {
     size: 10,
-    alpha: 0.3,
+    alpha: 0.6,
     shape: 'grid',
     division: 10,
-    color: '#00ff00',
+    color: '#00aa00',
     visible: true
   },
   axes: {

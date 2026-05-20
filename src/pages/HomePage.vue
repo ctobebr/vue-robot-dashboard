@@ -1,22 +1,28 @@
 <template>
   <div class="home-page">
-    <Toolbar 
+    <Toolbar
       :openCommonSettings="openCommonSettings"
       :openDataListModal="openDataListModal"
+      :openAuthModal="openAuthModal"
       @update:openCommonSettings="handleOpenCommonSettings"
       @update:openDataListModal="handleOpenDataListModal"
+      @update:openAuthModal="handleOpenAuthModal"
     />
     <Header 
-      :openSidebar="openSidebar" 
-      @toggle-sidebar="handleToggleSidebar" 
+      :openSidebar="openSidebar"
+      :videoVisible="videoVisible"
+      @toggle-sidebar="handleToggleSidebar"
+      @video-visible-change="handleVideoVisibleChange"
+      @toggle-joystick-state="handleJoystickStateChange"
     />
     <Sidebar :opened="openSidebar" @close="openSidebar = false" />
     <CommonSettings :opened="openCommonSettings" @close="openCommonSettings = false" />
     <DataListModal :opened="openDataListModal" @close="openDataListModal = false" />
+    <AuthModal :opened="openAuthModal" @close="openAuthModal = false" />
     <Viewer />
     
     <!-- 视频显示区域 -->
-    <div class="control-panel video-panel">
+    <div class="control-panel video-panel" v-if="videoVisible">
       <VideoDisplay 
         :videoSrc="videoSrc"
         :isConnected="isVideoConnected"
@@ -26,20 +32,24 @@
     </div>
     
     <!-- 左下角Joystick -->
-    <div class="control-panel joystick-left">
-      <Joystick 
+    <div class="control-panel joystick-left" v-show="joysticksVisible">
+      <Joystick
+        joystickId="left"
         :size="120"
         color="#409eff"
+        :showStatus="joystickShowStatus"
         @move="handleLeftJoystickMove"
         @stop="handleLeftJoystickStop"
       />
     </div>
-    
+
     <!-- 右下角Joystick -->
-    <div class="control-panel joystick-right">
-      <Joystick 
+    <div class="control-panel joystick-right" v-show="joysticksVisible">
+      <Joystick
+        joystickId="right"
         :size="120"
         color="#67c23a"
+        :showStatus="joystickShowStatus"
         @move="handleRightJoystickMove"
         @stop="handleRightJoystickStop"
       />
@@ -47,7 +57,8 @@
     
     <!-- 右侧媒体控制 -->
     <div class="control-panel media-panel">
-      <MediaControl 
+      <MediaControl
+        :videoVisible="videoVisible"
         @camera-click="handleCameraClick"
         @recorder-click="handleRecorderClick"
       />
@@ -68,6 +79,7 @@ import Header from '@/components/Header/Header.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import CommonSettings from '@/components/Common/CommonSettings.vue'
 import DataListModal from '@/components/Modals/DataListModal.vue'
+import AuthModal from '@/components/Auth/AuthModal.vue'
 import Viewer from '@/components/Viewer/Viewer.vue'
 import Joystick from '@/components/Control/Joystick.vue'
 import MediaControl from '@/components/Control/MediaControl.vue'
@@ -77,6 +89,13 @@ import VideoDisplay from '@/components/Control/VideoDisplay.vue'
 const openSidebar = ref(false)
 const openCommonSettings = ref(false)
 const openDataListModal = ref(false)
+const openAuthModal = ref(false)
+const videoVisible = ref(true)
+
+// 摇杆显示状态
+const joystickMode = ref(0) // 0-3循环状态
+const joystickShowStatus = ref(false) // 控制showStatus属性
+const joysticksVisible = ref(true) // 控制摇杆容器显示
 
 // 视频相关状态
 const videoSrc = ref('')
@@ -86,6 +105,25 @@ const isVideoConnected = ref(false)
 const { sendMove, sendStop, connect: connectRobot } = useRobotControl()
 const { isRecording, capture, startRecord, stopRecord, setRecordingState } = useMediaControl()
 const { refresh: refreshVideo, setConnected: setVideoConnected } = useVideoStream()
+
+// 摇杆显示状态切换处理
+function handleJoystickStateChange(state) {
+  joystickMode.value = state
+  switch (state) {
+    case 0: // 默认：显示摇杆，不显示状态
+      joysticksVisible.value = true
+      joystickShowStatus.value = false
+      break
+    case 1: // 显示摇杆和状态
+      joysticksVisible.value = true
+      joystickShowStatus.value = true
+      break
+    case 2: // 隐藏摇杆
+      joysticksVisible.value = false
+      joystickShowStatus.value = false
+      break
+  }
+}
 
 // 摇杆事件处理
 function handleLeftJoystickMove(direction) {
@@ -131,6 +169,7 @@ function handleOpenCommonSettings(value) {
   if (value) {
     openSidebar.value = false
     openDataListModal.value = false
+    openAuthModal.value = false
   }
   openCommonSettings.value = value
 }
@@ -139,8 +178,18 @@ function handleOpenDataListModal(value) {
   if (value) {
     openSidebar.value = false
     openCommonSettings.value = false
+    openAuthModal.value = false
   }
   openDataListModal.value = value
+}
+
+function handleOpenAuthModal(value) {
+  if (value) {
+    openSidebar.value = false
+    openCommonSettings.value = false
+    openDataListModal.value = false
+  }
+  openAuthModal.value = value
 }
 
 function handleToggleSidebar() {
@@ -148,8 +197,13 @@ function handleToggleSidebar() {
   if (newValue) {
     openCommonSettings.value = false
     openDataListModal.value = false
+    openAuthModal.value = false
   }
   openSidebar.value = newValue
+}
+
+function handleVideoVisibleChange(visible) {
+  videoVisible.value = visible
 }
 
 // 设备状态相关
@@ -271,21 +325,24 @@ onUnmounted(() => {
 }
 
 /* 视频显示区域 - 左上角，避开StatsGl */
+/* 适配修改 */
 .video-panel {
-  top: 120px;
-  left: 140px;
-  width: 480px;
+  top: 40px;
+  left: 10px;
+  width: 300px;
 }
 
 /* 左下角Joystick */
+/* 适配修改 */
 .joystick-left {
-  bottom: 20px;
+  bottom: 10px;
   left: 20px;
 }
 
 /* 右下角Joystick */
+/* 适配修改 */
 .joystick-right {
-  bottom: 20px;
+  bottom: 10px;
   right: 20px;
 }
 

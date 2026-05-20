@@ -1,13 +1,25 @@
 <template>
   <div class="toolbar">
     <div class="toolbar-buttons">
-      <el-button 
-        :type="camera.follow ? 'primary' : 'info'"
+      <el-button
+        type="info"
+        class="toolbar-btn"
+        :title="t('userLogin')"
+        @click="handleOpenAuthModal"
+      >
+        <PhUser size="30" />
+      </el-button>
+
+      <el-button
         class="toolbar-btn"
         :title="t('viewFollow')"
         @click="toggleCameraFollow"
       >
-        <PhNavigationArrow size="30" />
+        <PhNavigationArrow 
+          size="30" 
+          :color="camera.follow ? '#409eff' : '#ffffff'"
+          :weight="camera.follow ? 'fill' : 'regular'"
+        />
       </el-button>
 
       <el-popover placement="right" :width="200" trigger="click" :show-arrow="false">
@@ -67,16 +79,17 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingStore } from '@/stores/setting'
-import { PhNavigationArrow, PhPerspective, PhUserFocus, PhCube, PhGearFine, PhDatabase } from '@phosphor-icons/vue'
+import { PhNavigationArrow, PhPerspective, PhUserFocus, PhCube, PhGearFine, PhDatabase, PhUser } from '@phosphor-icons/vue'
 
 const { t } = useI18n()
 const settingStore = useSettingStore()
 
 const props = defineProps({
   openCommonSettings: Boolean,
-  openDataListModal: Boolean
+  openDataListModal: Boolean,
+  openAuthModal: Boolean
 })
-const emit = defineEmits(['update:openCommonSettings', 'update:openDataListModal'])
+const emit = defineEmits(['update:openCommonSettings', 'update:openDataListModal', 'update:openAuthModal'])
 
 const camera = computed(() => settingStore.camera)
 const appearance = computed(() => settingStore.appearance)
@@ -87,6 +100,10 @@ function handleOpenCommonSettings() {
 
 function handleOpenDataListModal() {
   emit('update:openDataListModal', !props.openDataListModal)
+}
+
+function handleOpenAuthModal() {
+  emit('update:openAuthModal', !props.openAuthModal)
 }
 
 function toggleCameraFollow() {
@@ -128,7 +145,7 @@ function setThirdPerson() {
   top: 50%;
   left: var(--base-spacing, 20px);
   transform: translateY(-50%);
-  z-index: 100;
+  z-index: 200;
 }
 
 .toolbar-buttons {
@@ -149,6 +166,14 @@ function setThirdPerson() {
   border-radius: var(--border-radius, 8px);
   border: none;
   flex-shrink: 0;
+  background-color: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.toolbar-btn:active,
+.toolbar-btn:focus {
+  background-color: transparent !important;
+  outline: none;
 }
 
 .toolbar-btn :deep(.el-button__content) {

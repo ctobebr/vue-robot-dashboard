@@ -1,38 +1,5 @@
 <template>
   <div class="joystick-container" :class="{ active: isActive }">
-    <!-- 十字键布局 -->
-    <div class="joystick-pad">
-      <!-- 上箭头 -->
-      <div class="direction-btn up" @mousedown="handleDirectionKeyDown('up')" @mouseup="handleDirectionKeyUp" @touchstart="handleDirectionKeyDown('up')" @touchend="handleDirectionKeyUp">
-        <el-icon><ArrowUp /></el-icon>
-      </div>
-      
-      <!-- 左箭头 -->
-      <div class="direction-btn left" @mousedown="handleDirectionKeyDown('left')" @mouseup="handleDirectionKeyUp" @touchstart="handleDirectionKeyDown('left')" @touchend="handleDirectionKeyUp">
-        <el-icon><ArrowLeft /></el-icon>
-      </div>
-      
-      <!-- 摇杆 -->
-      <div class="joystick-wrapper" ref="joystickWrapper">
-        <div class="joystick-base"></div>
-        <div 
-          class="joystick-knob" 
-          ref="joystickKnob"
-          @mousedown="handleMouseDown"
-          @touchstart="handleTouchStart"
-        ></div>
-      </div>
-      
-      <!-- 右箭头 -->
-      <div class="direction-btn right" @mousedown="handleDirectionKeyDown('right')" @mouseup="handleDirectionKeyUp" @touchstart="handleDirectionKeyDown('right')" @touchend="handleDirectionKeyUp">
-        <el-icon><ArrowRight /></el-icon>
-      </div>
-      
-      <!-- 下箭头 -->
-      <div class="direction-btn down" @mousedown="handleDirectionKeyDown('down')" @mouseup="handleDirectionKeyUp" @touchstart="handleDirectionKeyDown('down')" @touchend="handleDirectionKeyUp">
-        <el-icon><ArrowDown /></el-icon>
-      </div>
-    </div>
     
     <!-- 状态显示 -->
     <div class="joystick-status" v-if="showStatus">
@@ -45,13 +12,39 @@
         <span class="value">{{ Math.round(strength * 100) }}%</span>
       </div>
     </div>
-    
+
     <!-- 控制台日志 -->
-    <div class="joystick-log" v-if="showStatus && logMessages.length > 0">
+    <div class="joystick-log" v-if="showStatus">
       <div class="log-header">控制台</div>
-      <div class="log-content">
+      <div class="log-content" ref="logContentRef">
         <div v-for="(message, index) in logMessages" :key="index" class="log-message">
           {{ message }}
+        </div>
+      </div>
+    </div>
+    <div class="joystick-pad" ref="containerRef">
+      <div class="joystick-wrapper" ref="joystickWrapper">
+        <div class="joystick-base"></div>
+        <div
+          class="joystick-knob"
+          ref="joystickKnob"
+          @mousedown="handleMouseDown"
+        ></div>
+
+        <div class="direction-btn up" :class="{ active: currentDirection === 'up' }" @mousedown.stop="handleDirectionKeyDown('up')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('up')" @touchend.stop.prevent="handleDirectionKeyUp">
+          <el-icon><ArrowUp /></el-icon>
+        </div>
+
+        <div class="direction-btn left" :class="{ active: currentDirection === 'left' }" @mousedown.stop="handleDirectionKeyDown('left')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('left')" @touchend.stop.prevent="handleDirectionKeyUp">
+          <el-icon><ArrowLeft /></el-icon>
+        </div>
+
+        <div class="direction-btn right" :class="{ active: currentDirection === 'right' }" @mousedown.stop="handleDirectionKeyDown('right')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('right')" @touchend.stop.prevent="handleDirectionKeyUp">
+          <el-icon><ArrowRight /></el-icon>
+        </div>
+
+        <div class="direction-btn down" :class="{ active: currentDirection === 'down' }" @mousedown.stop="handleDirectionKeyDown('down')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('down')" @touchend.stop.prevent="handleDirectionKeyUp">
+          <el-icon><ArrowDown /></el-icon>
         </div>
       </div>
     </div>
@@ -59,11 +52,42 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, onBeforeUnmount, nextTick } from 'vue'
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { ElIcon } from 'element-plus'
+import { getMultiTouch, setupGlobalMultiTouchListeners } from '@/composables/useMultiTouch'
 
-const props = defineProps({
+/**
+ * @typedef {Object} JoystickProps
+ * @property {number} [size=120] 摇杆底座尺寸（像素）
+ * @property {boolean} [showDirectionKeys=true] 是否显示方向按键
+ * @property {string} [color='#409eff'] 摇杆激活状态颜色
+ * @property {boolean} [showStatus=false] 是否显示状态信息
+ * @property {'slow'|'normal'|'fast'} [speedMode='normal'] 速度模式
+ * @property {string} [joystickId='default'] 摇杆唯一标识符
+ */
+
+/**
+ * @typedef {Object} Direction
+ * @property {number} x X轴方向值（-1到1）
+ * @property {number} y Y轴方向值（-1到1）
+ * @property {number} strength 力度值（0到1）
+ */
+
+/**
+ * @typedef {Object} Position
+ * @property {number} x X轴偏移量（像素）
+ * @property {number} y Y轴偏移量（像素）
+ */
+
+/**
+ * @typedef {Object} CalculatedPosition
+ * @property {number} x X轴偏移量（像素）
+ * @property {number} y Y轴偏移量（像素）
+ * @property {number} distance 归一化距离（0到1）
+ */
+
+const props = defineProps(/** @type {JoystickProps} */ ({
   size: {
     type: Number,
     default: 120
@@ -84,68 +108,111 @@ const props = defineProps({
     type: String,
     default: 'normal',
     validator: (value) => ['slow', 'normal', 'fast'].includes(value)
-  }
-})
-
-// 频率控制配置对象
-const config = {
-  // 摇杆拖拽配置
-  joystick: {
-    maxFrequency: 25, // 最高25次/秒
-    minInterval: 40, // 最小间隔40ms
-    threshold: {
-      x: 0.05, // x变化超过0.05才发送
-      y: 0.05, // y变化超过0.05才发送
-      strength: 0.03 // 力度变化超过0.03才发送
-    }
   },
-  // 方向键配置
-  key: {
-    maxFrequency: 12, // 最高12次/秒
-    minInterval: 83, // 最小间隔83ms
-    fixedSpeed: 0.6 // 固定速度0.6
-  },
-  // 安全保护配置
-  safety: {
-    autoStopDelay: 500, // 500ms无指令自动停止
-    heartbeatInterval: 200 // 每200ms检查一次
+  joystickId: {
+    type: String,
+    default: 'default'
   }
-}
+}))
 
-// 速度档位映射
-const speedMappings = {
-  slow: 0.3, // 0.3倍速度
-  normal: 0.6, // 0.6倍速度
-  fast: 1.0 // 1.0倍速度
-}
+/**
+ * 触发移动事件
+ * @event move
+ * @type {{x: number, y: number, strength: number, source: 'joystick'|'key'}}
+ */
+
+/**
+ * 触发停止事件
+ * @event stop
+ */
 
 const emit = defineEmits(['move', 'stop'])
 
+const containerRef = ref(null)
 const joystickWrapper = ref(null)
 const joystickKnob = ref(null)
+const logContentRef = ref(null)
 const isActive = ref(false)
-const position = ref({ x: 0, y: 0 })
+const position = ref(/** @type {Position} */ ({ x: 0, y: 0 }))
 const isDragging = ref(false)
-const direction = ref({ x: 0, y: 0, strength: 0 })
+const direction = ref(/** @type {Direction} */({ x: 0, y: 0, strength: 0 }))
 const logMessages = ref([])
 const directionKeyInterval = ref(null)
 const resetInterval = ref(null)
 const currentDirection = ref('')
 
-// 频率控制变量
-const lastSendTime = ref(0) // 上次发送时间
-const lastDirection = ref({ x: 0, y: 0, strength: 0 }) // 上次发送的方向和力度
-const lastCommandTime = ref(Date.now()) // 最后一次发送指令的时间
-const heartbeatInterval = ref(null) // 心跳检测定时器
-const isAutoStopEnabled = ref(true) // 自动停止是否启用
-const sendInterval = ref(null) // 发送定时器
+/**
+ * 控制模式：'joystick' | 'key'
+ * - joystick: 摇杆拖拽模式，摇杆头跟随移动
+ * - key: 方向键模式，摇杆头保持中心位置，仅发送指令
+ */
+const controlMode = ref('joystick')
 
-// 监听 position 和 isActive 变化，自动更新摇杆样式
+const lastSendTime = ref(0)
+const lastDirection = ref(/** @type {Direction} */({ x: 0, y: 0, strength: 0 }))
+const lastCommandTime = ref(Date.now())
+const heartbeatInterval = ref(null)
+const isAutoStopEnabled = ref(true)
+const sendInterval = ref(null)
+
+const activeTouchId = ref(null)
+
+/**
+ * 摇杆配置对象
+ * @property {Object} joystick 摇杆模式配置
+ * @property {number} joystick.maxFrequency 最大发送频率（Hz）
+ * @property {number} joystick.minInterval 最小发送间隔（毫秒）
+ * @property {Object} joystick.threshold 变化阈值
+ * @property {number} joystick.threshold.x X轴变化阈值
+ * @property {number} joystick.threshold.y Y轴变化阈值
+ * @property {number} joystick.threshold.strength 力度变化阈值
+ * @property {Object} key 方向键模式配置
+ * @property {number} key.maxFrequency 方向键最大频率（Hz）
+ * @property {number} key.minInterval 方向键最小间隔（毫秒）
+ * @property {number} key.fixedSpeed 方向键固定速度
+ * @property {Object} safety 安全机制配置
+ * @property {number} safety.autoStopDelay 自动停止延迟（毫秒）
+ * @property {number} safety.heartbeatInterval 心跳检测间隔（毫秒）
+ */
+const config = {
+  joystick: {
+    maxFrequency: 25,
+    minInterval: 40,  // 摇杆拖动最多 约25次/秒
+    threshold: {
+      x: 0.05,
+      y: 0.05,
+      strength: 0.03
+    }
+  },
+  key: {
+    maxFrequency: 12,
+    minInterval: 83,  //  方向键长按最多 约12次/秒
+    fixedSpeed: 0.6
+  },
+  safety: {
+    autoStopDelay: 500,
+    heartbeatInterval: 200
+  }
+}
+
+/**
+ * 速度模式映射表
+ * @type {Object.<string, number>}
+ */
+const speedMappings = {
+  slow: 0.3,
+  normal: 0.6,
+  fast: 1.0
+}
+
 watch([position, isActive], () => {
   updateKnobStyle()
 }, { deep: true })
 
-// 计算方向文本
+/**
+ * 根据当前方向计算显示文本
+ * @returns {string} 方向文本（'上'、'下'、'左'、'右'）
+ */
 const directionText = computed(() => {
   const { x, y } = direction.value
   if (Math.abs(x) > Math.abs(y)) {
@@ -155,15 +222,23 @@ const directionText = computed(() => {
   }
 })
 
-// 计算力度
+/**
+ * 获取当前摇杆力度值
+ * @returns {number} 力度值（0到1）
+ */
 const strength = computed(() => {
   return direction.value.strength
 })
 
-// 持续发送当前方向（模式B：固定频率发送）
+/**
+ * 发送当前摇杆方向数据
+ * 根据配置的最短间隔限制发送频率，避免过于频繁的数据传输
+ * @returns {void}
+ * @throws {Error} 当摇杆未处于拖拽状态时不执行任何操作
+ */
 function sendCurrentDirection() {
   if (!isDragging.value) return
-  
+
   const now = Date.now()
   if (now - lastSendTime.value >= config.joystick.minInterval) {
     const directionWithSource = {
@@ -173,238 +248,311 @@ function sendCurrentDirection() {
     emit('move', directionWithSource)
     lastSendTime.value = now
     lastCommandTime.value = now
+    addLog(`摇杆移动 (${directionText.value})`)
   }
 }
 
-// 直接更新摇杆样式
+/**
+ * 更新摇杆旋钮的视觉位置和颜色
+ * 根据当前position和isActive状态应用相应的CSS样式
+ * @returns {void}
+ */
 function updateKnobStyle() {
   if (joystickKnob.value) {
-    joystickKnob.value.style.transform = `translate(calc(-50% + ${position.value.x}px), calc(-50% + ${position.value.y}px))`
+    // 方向键模式下，摇杆头保持在中心位置
+    const x = controlMode.value === 'key' ? 0 : position.value.x
+    const y = controlMode.value === 'key' ? 0 : position.value.y
+    joystickKnob.value.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`
     joystickKnob.value.style.backgroundColor = isActive.value ? props.color : '#666'
   }
 }
 
-// 计算位置
+/**
+ * 根据触摸/鼠标位置计算摇杆偏移量
+ * @param {number} clientX 客户端X坐标
+ * @param {number} clientY 客户端Y坐标
+ * @returns {CalculatedPosition} 包含x、y偏移量和归一化距离的对象
+ * @throws {Error} 当摇杆容器元素不存在时返回零点坐标
+ */
 function calculatePosition(clientX, clientY) {
   if (!joystickWrapper.value) {
     return { x: 0, y: 0, distance: 0 }
   }
-  
+
   const rect = joystickWrapper.value.getBoundingClientRect()
   const centerX = rect.width / 2
   const centerY = rect.height / 2
-  
+
   let x = clientX - rect.left - centerX
   let y = clientY - rect.top - centerY
-  
+
   const distance = Math.sqrt(x * x + y * y)
   const maxDistance = centerX * 0.8
-  
+
   if (distance > maxDistance) {
     const angle = Math.atan2(y, x)
     x = Math.cos(angle) * maxDistance
     y = Math.sin(angle) * maxDistance
   }
-  
+
   return { x, y, distance: Math.min(distance, maxDistance) / maxDistance }
 }
 
-// 鼠标按下
-function handleMouseDown(event) {
-  event.preventDefault()
-  isActive.value = true
-  isDragging.value = true
-  // 重置发送时间，确保立即发送
-  lastSendTime.value = 0
-  updatePosition(event.clientX, event.clientY)
-  // 启动持续发送定时器
-  sendInterval.value = setInterval(sendCurrentDirection, config.joystick.minInterval)
-  addLog('摇杆激活')
-}
-
-// 触摸开始
-function handleTouchStart(event) {
-  event.preventDefault()
-  isActive.value = true
-  isDragging.value = true
-  // 重置发送时间，确保立即发送
-  lastSendTime.value = 0
-  const touch = event.touches[0]
-  updatePosition(touch.clientX, touch.clientY)
-  // 启动持续发送定时器
-  sendInterval.value = setInterval(sendCurrentDirection, config.joystick.minInterval)
-  addLog('摇杆激活 (触摸)')
-}
-
-// 鼠标移动
-function handleMouseMove(event) {
-  if (isDragging.value) {
-    updatePosition(event.clientX, event.clientY)
-  }
-}
-
-// 触摸移动
-function handleTouchMove(event) {
-  if (isDragging.value) {
-    event.preventDefault()
-    const touch = event.touches[0]
-    updatePosition(touch.clientX, touch.clientY)
-  }
-}
-
-// 鼠标释放
-function handleMouseUp() {
-  if (isDragging.value) {
-    resetPosition()
-    addLog('摇杆释放')
-  }
-}
-
-// 触摸结束
-function handleTouchEnd() {
-  if (isDragging.value) {
-    resetPosition()
-    addLog('摇杆释放 (触摸)')
-  }
-}
-
-// 更新位置
+/**
+ * 更新摇杆位置和方向数据
+ * 根据新的触摸/鼠标位置计算并更新position和direction
+ * @param {number} clientX 客户端X坐标
+ * @param {number} clientY 客户端Y坐标
+ * @returns {void}
+ */
 function updatePosition(clientX, clientY) {
   const pos = calculatePosition(clientX, clientY)
   position.value = { x: pos.x, y: pos.y }
-  
-  // 计算原始方向和力度（用于视觉位置）
+
   const rawDirection = {
     x: pos.x / (props.size / 2),
     y: pos.y / (props.size / 2),
     strength: pos.distance
   }
-  
-  // 应用速度档位到输出值（不影响视觉位置）
+
   const speedMultiplier = speedMappings[props.speedMode]
   const newDirection = {
     x: rawDirection.x * speedMultiplier,
     y: rawDirection.y * speedMultiplier,
     strength: rawDirection.strength * speedMultiplier
   }
-  
+
   direction.value = newDirection
-  
-  // 重新启用自动停止
   isAutoStopEnabled.value = true
 }
 
-// 心跳检测函数
+/**
+ * 处理鼠标按下事件，开始拖拽摇杆
+ * @param {MouseEvent} event 鼠标事件对象
+ * @returns {void}
+ */
+function handleMouseDown(event) {
+  event.preventDefault()
+  // 如果当前是方向键模式，先停止方向键控制
+  if (controlMode.value === 'key') {
+    handleDirectionKeyUp()
+  }
+  controlMode.value = 'joystick'
+  isActive.value = true
+  isDragging.value = true
+  lastSendTime.value = 0
+  updatePosition(event.clientX, event.clientY)
+  sendInterval.value = setInterval(sendCurrentDirection, config.joystick.minInterval)
+  addLog('摇杆激活')
+
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+}
+
+/**
+ * 处理鼠标移动事件，更新摇杆位置
+ * @param {MouseEvent} event 鼠标事件对象
+ * @returns {void}
+ */
+function handleMouseMove(event) {
+  if (isDragging.value) {
+    updatePosition(event.clientX, event.clientY)
+  }
+}
+
+/**
+ * 处理鼠标释放事件，复位摇杆
+ * @returns {void}
+ */
+function handleMouseUp() {
+  if (isDragging.value) {
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+    resetPosition()
+    addLog('摇杆释放')
+  }
+}
+
+/**
+ * 检查触摸点是否在摇杆底座圆形区域内
+ * @param {number} clientX 客户端X坐标
+ * @param {number} clientY 客户端Y坐标
+ * @returns {boolean} 是否在圆形区域内
+ */
+function isTouchInJoystickBase(clientX, clientY) {
+  if (!joystickWrapper.value) return false
+
+  const rect = joystickWrapper.value.getBoundingClientRect()
+  const centerX = rect.left + rect.width / 2
+  const centerY = rect.top + rect.height / 2
+  const radius = rect.width / 2
+
+  const distance = Math.sqrt(
+    Math.pow(clientX - centerX, 2) + Math.pow(clientY - centerY, 2)
+  )
+
+  // 允许稍微超出边界（1.2倍半径），提高容错性
+  return distance <= radius * 1.2
+}
+
+/**
+ * 处理托管触摸开始事件
+ * @param {Touch} touch 触摸事件对象
+ * @returns {void}
+ */
+function handleManagedTouchStart(touch) {
+  if (activeTouchId.value !== null) return
+
+  // 检查触摸点是否在摇杆底座圆形区域内
+  if (!isTouchInJoystickBase(touch.clientX, touch.clientY)) {
+    return
+  }
+
+  // 如果当前是方向键模式，先停止方向键控制
+  if (controlMode.value === 'key') {
+    handleDirectionKeyUp()
+  }
+  controlMode.value = 'joystick'
+  activeTouchId.value = touch.identifier
+  isActive.value = true
+  isDragging.value = true
+  lastSendTime.value = 0
+  updatePosition(touch.clientX, touch.clientY)
+  sendInterval.value = setInterval(sendCurrentDirection, config.joystick.minInterval)
+  addLog(`摇杆激活 (托管触摸) ID:${touch.identifier}`)
+}
+
+/**
+ * 处理托管触摸移动事件
+ * @param {Touch} touch 触摸事件对象
+ * @returns {void}
+ */
+function handleManagedTouchMove(touch) {
+  if (activeTouchId.value === null) return
+  updatePosition(touch.clientX, touch.clientY)
+}
+
+/**
+ * 处理托管触摸结束事件
+ * @param {Touch} touch 触摸事件对象
+ * @returns {void}
+ */
+function handleManagedTouchEnd(touch) {
+  if (activeTouchId.value !== null) {
+    resetPosition()
+    activeTouchId.value = null
+    addLog('摇杆释放 (托管触摸)')
+  }
+}
+
+/**
+ * 检查心跳状态，触发自动停止
+ * 当摇杆超过指定时间未收到指令时自动发送stop事件
+ * @returns {void}
+ */
 function checkHeartbeat() {
   const now = Date.now()
-  // 只有当用户不在拖拽时才进行超时检测，且自动停止启用时才检测
   if (!isDragging.value && isAutoStopEnabled.value && now - lastCommandTime.value > config.safety.autoStopDelay) {
-    // 超过500ms无指令，自动停止
-    // 只发送stop事件，不调用resetPosition()，避免打断拖拽
     direction.value = { x: 0, y: 0, strength: 0 }
     emit('stop')
     addLog('自动停止（超时）')
-    // 禁用自动停止，直到有新指令
     isAutoStopEnabled.value = false
   }
 }
 
-// 重置位置
+/**
+ * 复位摇杆到初始状态
+ * 立即将摇杆回归中心位置
+ * @returns {void}
+ */
 function resetPosition() {
   isActive.value = false
   isDragging.value = false
-  
-  // 停止持续发送定时器
+
   if (sendInterval.value) {
     clearInterval(sendInterval.value)
     sendInterval.value = null
   }
-  
-  // 清理现有的定时器
+
   if (resetInterval.value) {
     clearInterval(resetInterval.value)
     resetInterval.value = null
   }
-  
-  // 平滑回正
-  resetInterval.value = setInterval(() => {
-    position.value = {
-      x: position.value.x * 0.8,
-      y: position.value.y * 0.8
-    }
-    
-    if (Math.abs(position.value.x) < 1 && Math.abs(position.value.y) < 1) {
-      position.value = { x: 0, y: 0 }
-      clearInterval(resetInterval.value)
-      resetInterval.value = null
-    }
-  }, 16)
-  
+
+  position.value = { x: 0, y: 0 }
+
   direction.value = { x: 0, y: 0, strength: 0 }
   emit('stop')
-  // 更新lastCommandTime，避免心跳检测立即触发
   lastCommandTime.value = Date.now()
   addLog('摇杆回正')
 }
 
-// 方向键按下
+/**
+ * 处理方向键按下事件
+ * @param {'up'|'down'|'left'|'right'} dir 方向
+ * @returns {void}
+ */
 function handleDirectionKeyDown(dir) {
+  // 如果当前是摇杆拖拽模式，先停止摇杆控制
+  if (controlMode.value === 'joystick' && isDragging.value) {
+    resetPosition()
+  }
+  controlMode.value = 'key'
   currentDirection.value = dir
-  
-  // 立即触发一次
+
   handleDirectionKey(dir)
-  
-  // 立即开始长按连续触发，83ms间隔
+
   directionKeyInterval.value = setInterval(() => {
     if (currentDirection.value === dir) {
       handleDirectionKey(dir)
     }
   }, config.key.minInterval)
-  
+
   addLog(`方向键 ${dir} 按下`)
 }
 
-// 方向键释放
+/**
+ * 处理方向键释放事件
+ * @returns {void}
+ */
 function handleDirectionKeyUp() {
   if (directionKeyInterval.value) {
-    // 清除定时器（可能是setTimeout或setInterval）
     clearTimeout(directionKeyInterval.value)
     clearInterval(directionKeyInterval.value)
     directionKeyInterval.value = null
   }
-  
+
   if (currentDirection.value) {
     addLog(`方向键 ${currentDirection.value} 释放`)
     currentDirection.value = ''
   }
-  
-  // 直接设置位置为0，无动画
+
   position.value = { x: 0, y: 0 }
-  // 如果当前有摇杆拖拽，不要清空 isActive 状态
   if (!isDragging.value) {
     isActive.value = false
   }
   direction.value = { x: 0, y: 0, strength: 0 }
-  
-  // 更新摇杆样式
+
   updateKnobStyle()
-  
+
   emit('stop')
-  // 更新lastCommandTime，避免心跳检测立即触发
   lastCommandTime.value = Date.now()
   addLog('方向键回正')
 }
 
-// 方向键处理
+/**
+ * 根据方向键输入计算并发送方向数据
+ * @param {'up'|'down'|'left'|'right'} dir 方向
+ * @returns {void}
+ */
 function handleDirectionKey(dir) {
-  // 只有当当前方向与传入方向一致时才执行
   if (currentDirection.value !== dir) {
     return
   }
-  
+
   let x = 0
   let y = 0
-  
+
   switch (dir) {
     case 'up':
       y = -1
@@ -419,99 +567,104 @@ function handleDirectionKey(dir) {
       x = 1
       break
   }
-  
-  // 最大偏移 = size * 0.3
-  const maxOffset = props.size * 0.3
-  // 输出速度 = config.key.fixedSpeed × speedMultiplier
+
   const speedMultiplier = speedMappings[props.speedMode]
   const outputSpeed = config.key.fixedSpeed * speedMultiplier
-  // 视觉偏移 = (输出速度 / 1.0) × 最大偏移 × 0.8
-  const offset = (outputSpeed / 1.0) * maxOffset * 0.8
-  
-  position.value = {
-    x: x * offset,
-    y: y * offset
-  }
-  
+
+  // 方向键模式下，不修改 position（摇杆头保持在中心），只发送指令
+  // position.value 保持 { x: 0, y: 0 }
+
   isActive.value = true
-  
-  // 应用速度档位（使用已计算的outputSpeed）
+
   const fixedSpeed = outputSpeed
-  
+
   const newDirection = {
     x: x * fixedSpeed,
     y: y * fixedSpeed,
     strength: fixedSpeed
   }
-  
-  // 移除相同方向检查，允许重复发送，只通过频率控制节流
-  
+
   direction.value = newDirection
-  
-  // 重新启用自动停止
   isAutoStopEnabled.value = true
-  
-  // 添加source标识
+
   const directionWithSource = {
     ...newDirection,
     source: 'key'
   }
-  
+
   emit('move', directionWithSource)
   lastDirection.value = { ...newDirection }
   lastCommandTime.value = Date.now()
-  
+
   addLog(`方向键 ${dir} 触发`)
 }
 
-// 添加日志
+/**
+ * 添加日志消息到显示列表
+ * @param {string} message 日志内容
+ * @returns {void}
+ */
 function addLog(message) {
+  if (!props.showStatus) return
   const timestamp = new Date().toLocaleTimeString()
   logMessages.value.push(`[${timestamp}] ${message}`)
-  
-  // 限制日志数量
+
   if (logMessages.value.length > 10) {
     logMessages.value.shift()
   }
+
+  nextTick(() => {
+    if (logContentRef.value) {
+      logContentRef.value.scrollTop = logContentRef.value.scrollHeight
+    }
+  })
 }
 
+let multiTouch = null
+
 onMounted(() => {
-  document.addEventListener('mousemove', handleMouseMove)
-  document.addEventListener('mouseup', handleMouseUp)
-  document.addEventListener('touchmove', handleTouchMove, { passive: false })
-  document.addEventListener('touchend', handleTouchEnd)
-  
-  // 更新lastCommandTime，避免初始化后立即触发心跳检测
+  setupGlobalMultiTouchListeners()
+  multiTouch = getMultiTouch()
+
   lastCommandTime.value = Date.now()
-  
-  // 启动心跳检测
+
   heartbeatInterval.value = setInterval(checkHeartbeat, config.safety.heartbeatInterval)
-  
-  // 初始化样式
+
   updateKnobStyle()
-  
+
+  if (multiTouch && joystickWrapper.value) {
+    multiTouch.registerJoystick(props.joystickId, joystickWrapper.value, {
+      onTouchStart: handleManagedTouchStart,
+      onTouchMove: handleManagedTouchMove,
+      onTouchEnd: handleManagedTouchEnd
+    })
+  }
+
   addLog('摇杆初始化完成')
+})
+
+onBeforeUnmount(() => {
+  if (multiTouch) {
+    multiTouch.unregisterJoystick(props.joystickId)
+  }
 })
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', handleMouseUp)
-  document.removeEventListener('touchmove', handleTouchMove)
-  document.removeEventListener('touchend', handleTouchEnd)
-  
+
   if (directionKeyInterval.value) {
     clearInterval(directionKeyInterval.value)
   }
-  
+
   if (resetInterval.value) {
     clearInterval(resetInterval.value)
   }
-  
+
   if (sendInterval.value) {
     clearInterval(sendInterval.value)
   }
-  
-  // 清理心跳检测定时器
+
   if (heartbeatInterval.value) {
     clearInterval(heartbeatInterval.value)
   }
@@ -528,7 +681,6 @@ onUnmounted(() => {
   user-select: none;
 }
 
-/* 十字键布局 */
 .joystick-pad {
   position: relative;
   width: calc(v-bind(size) * 2px);
@@ -538,37 +690,56 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-/* 方向按钮 */
 .direction-btn {
   position: absolute;
   width: calc(v-bind(size) * 0.4px);
   height: calc(v-bind(size) * 0.4px);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  border: none;
+  box-shadow: none;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .direction-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: v-bind(color);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
+  transform: translateX(-50%) translateY(-2px);
 }
 
-.direction-btn:active {
-  background: rgba(255, 255, 255, 0.2);
-  transform: scale(0.95) translateY(0);
-  box-shadow: 0 1px 4px rgba(64, 158, 255, 0.2);
+.direction-btn:active,
+.direction-btn.active {
+  transform: translateX(-50%) scale(0.95);
 }
 
-/* 方向按钮位置 */
+.direction-btn.left:hover {
+  transform: translateY(-50%) translateX(-2px);
+}
+
+.direction-btn.left:active,
+.direction-btn.left.active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.direction-btn.right:hover {
+  transform: translateY(-50%) translateX(2px);
+}
+
+.direction-btn.right:active,
+.direction-btn.right.active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.direction-btn.down:hover {
+  transform: translateX(-50%) translateY(2px);
+}
+
+.direction-btn.down:active,
+.direction-btn.down.active {
+  transform: translateX(-50%) scale(0.95);
+}
+
 .direction-btn.up {
   top: 0;
   left: 50%;
@@ -592,12 +763,11 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
 }
-
-/* 摇杆 */
+/* 适配修改 */
 .joystick-wrapper {
   position: relative;
-  width: v-bind(size + 'px');
-  height: v-bind(size + 'px');
+  width: calc(v-bind(size) * 1.2px);
+  height: calc(v-bind(size) * 1.2px);
   cursor: grab;
   touch-action: none;
 }
@@ -606,7 +776,6 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
-/* 摇杆底座 */
 .joystick-base {
   position: absolute;
   top: 0;
@@ -627,7 +796,6 @@ onUnmounted(() => {
   box-shadow: 0 4px 20px rgba(64, 158, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-/* 摇杆头 */
 .joystick-knob {
   position: absolute;
   top: 50%;
@@ -648,7 +816,6 @@ onUnmounted(() => {
   box-shadow: 0 3px 15px rgba(64, 158, 255, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
-/* 状态显示 */
 .joystick-status {
   display: flex;
   gap: 16px;
@@ -675,7 +842,6 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* 控制台日志 */
 .joystick-log {
   width: 240px;
   background: rgba(0, 0, 0, 0.7);
@@ -707,32 +873,47 @@ onUnmounted(() => {
   line-height: 1.3;
 }
 
-/* 响应式设计 */
 @media screen and (max-width: 768px) {
   .joystick-pad {
     width: calc(v-bind(size) * 1.6px);
     height: calc(v-bind(size) * 1.6px);
   }
-  
+
   .direction-btn {
     width: calc(v-bind(size) * 0.32px);
     height: calc(v-bind(size) * 0.32px);
   }
-  
-  .joystick-wrapper {
-    width: calc(v-bind(size) * 0.8px);
-    height: calc(v-bind(size) * 0.8px);
+
+  .direction-btn.up {
+    top: 0;
   }
-  
+
+  .direction-btn.left {
+    left: 0;
+  }
+
+  .direction-btn.right {
+    right: 0;
+  }
+
+  .direction-btn.down {
+    bottom: 0;
+  }
+
+  .joystick-wrapper {
+    width: calc(v-bind(size) * 1.4px);
+    height: calc(v-bind(size) * 1.4px);
+  }
+
   .joystick-status {
     gap: 12px;
     padding: 6px 12px;
   }
-  
+
   .joystick-log {
     width: 200px;
   }
-  
+
   .log-content {
     max-height: 100px;
   }
@@ -743,31 +924,47 @@ onUnmounted(() => {
     width: calc(v-bind(size) * 1.4px);
     height: calc(v-bind(size) * 1.4px);
   }
-  
+
   .direction-btn {
     width: calc(v-bind(size) * 0.28px);
     height: calc(v-bind(size) * 0.28px);
   }
-  
-  .joystick-wrapper {
-    width: calc(v-bind(size) * 0.7px);
-    height: calc(v-bind(size) * 0.7px);
+
+  .direction-btn.up {
+    top: 0;
   }
-  
+
+  .direction-btn.left {
+    left: 0;
+  }
+
+  .direction-btn.right {
+    right: 0;
+  }
+
+  .direction-btn.down {
+    bottom: 0;
+  }
+
+  .joystick-wrapper {
+    width: calc(v-bind(size) * 1.2px);
+    height: calc(v-bind(size) * 1.2px);
+  }
+
   .joystick-status {
     gap: 8px;
     padding: 4px 8px;
     font-size: 10px;
   }
-  
+
   .joystick-log {
     width: 160px;
   }
-  
+
   .log-content {
     max-height: 80px;
   }
-  
+
   .log-message {
     font-size: 10px;
   }

@@ -92,6 +92,12 @@
     </div>
 
     <div class="header-right">
+      <div class="icon-button" @click="handleToggleJoystickState" title="切换摇杆显示">
+        <PhGameController color="#ffffff" size="18" />
+      </div>
+      <div class="icon-button" @click="handleToggleFullscreen" :title="t('fullscreen')">
+        <PhCornersOut color="#ffffff" size="18" />
+      </div>
       <div class="icon-button" @click="handleToggleLanguage" :title="t('toggleLanguage')">
         <PhTranslate color="#ffffff" size="18" />
       </div>
@@ -102,6 +108,20 @@
       <div class="icon-button" @click="handleToggleSidebar" :title="t('moreSettings')">
         <PhList color="#ffffff" size="20" />
       </div>
+      <!-- 视频面板控制按钮 - 暂时用视频面板的最小化按钮代替
+      <el-button
+        :type="videoVisible ? 'success' : 'default'"
+        size="default"
+        class="header-action-btn camera-btn"
+        @click="handleToggleVideo"
+      >
+        <template #icon>
+          <PhPictureInPicture v-if="videoVisible" size="18" />
+          <PhVideoCamera v-else size="18" />
+        </template>
+        <span class="btn-text">{{ videoVisible ? t('hideVideoPanel') : t('showVideoPanel') }}</span>
+      </el-button>
+      -->
       <el-button
         :type="recording ? 'success' : 'primary'"
         size="default"
@@ -216,7 +236,7 @@ import { ElNotification } from 'element-plus'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 import { deviceAPI } from '@/services/api'
-import { PhWifiHigh, PhTarget, PhVinylRecord, PhCaretDown, PhTranslate, PhShareNetwork, PhList, PhPower, PhPlay, PhArrowClockwise, PhInfo } from '@phosphor-icons/vue'
+import { PhWifiHigh, PhTarget, PhVinylRecord, PhCaretDown, PhTranslate, PhShareNetwork, PhList, PhPower, PhPlay, PhArrowClockwise, PhInfo, PhVideoCamera, PhPictureInPicture, PhCornersOut, PhGameController } from '@phosphor-icons/vue'
 import IpInput from '@/components/Input/IpInput.vue'
 
 dayjs.extend(duration)
@@ -224,7 +244,7 @@ dayjs.extend(duration)
 defineProps({
   openSidebar: Boolean
 })
-const emit = defineEmits(['toggle-sidebar'])
+const emit = defineEmits(['toggle-sidebar', 'video-visible-change', 'toggle-joystick-state'])
 
 const { t, locale } = useI18n()
 const deviceStore = useDeviceStore()
@@ -236,6 +256,7 @@ const statusPopoverVisible = ref(false)
 const dataName = ref('')
 const networkDialogVisible = ref(false)
 const changeIpDialogVisible = ref(false)
+const videoVisible = ref(true)
 
 const networksValue = ref({
   ip: deviceStore.networks.ip,
@@ -247,6 +268,8 @@ const changeIpData = ref({
   ip: '',
   type: 1
 })
+
+const joystickState = ref(0)
 
 const status = computed(() => deviceStore.status)
 const recording = computed(() => deviceStore.recording)
@@ -318,6 +341,24 @@ function handleOpenResetMappingModal() {
 
 function handleToggleSidebar() {
   emit('toggle-sidebar')
+}
+
+function handleToggleJoystickState() {
+  joystickState.value = (joystickState.value + 1) % 3
+  emit('toggle-joystick-state', joystickState.value)
+}
+
+function handleToggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen()
+  } else {
+    document.exitFullscreen()
+  }
+}
+
+function handleToggleVideo() {
+  videoVisible.value = !videoVisible.value
+  emit('video-visible-change', videoVisible.value)
 }
 
 async function handleConfirmRecording() {
@@ -681,6 +722,24 @@ onUnmounted(() => {
 }
 
 .recording-btn.el-button--success:hover {
+  background: rgba(16, 185, 129, 0.25);
+}
+
+.camera-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.camera-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.camera-btn.el-button--success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.camera-btn.el-button--success:hover {
   background: rgba(16, 185, 129, 0.25);
 }
 
