@@ -51,12 +51,14 @@
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits } from 'vue'
+import { computed, defineProps, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSettingStore } from '@/stores/setting'
 import { VideoCamera, FullScreen, Refresh, Minus } from '@element-plus/icons-vue'
 import { ElIcon } from 'element-plus'
 
 const { t } = useI18n()
+const settingStore = useSettingStore()
 
 const props = defineProps({
   videoSrc: {
@@ -71,7 +73,18 @@ const props = defineProps({
 
 const emit = defineEmits(['refresh', 'fullscreen', 'minimize-change'])
 
-const isMinimized = ref(false)
+// 使用 store 中的视频面板状态
+const videoPanel = computed(() => settingStore.videoPanel)
+
+const isMinimized = computed({
+  get: () => videoPanel.value.minimized,
+  set: (val) => {
+    settingStore.setVideoPanel({
+      ...videoPanel.value,
+      minimized: val
+    })
+  }
+})
 
 function toggleFullscreen() {
   emit('fullscreen')

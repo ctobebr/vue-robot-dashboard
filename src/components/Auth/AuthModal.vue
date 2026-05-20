@@ -121,11 +121,12 @@ watch(() => props.opened, (newVal) => {
   position: absolute;
   top: calc(var(--header-height, 40px) + 10px);
   bottom: calc(var(--header-height, 40px) + 10px);
-  left: var(--base-spacing, 20px);
+  /* 向右偏移，避开左侧 Toolbar (60px宽度 + 20px间距) */
+  left: calc(var(--base-spacing, 20px) + 80px);
   width: var(--sidebar-width, 350px);
   z-index: 200;
   transition: transform 300ms ease, opacity 200ms ease;
-  transform: translateX(calc(-1 * var(--sidebar-width, 350px) - var(--base-spacing, 20px)));
+  transform: translateX(calc(-1 * var(--sidebar-width, 350px) - var(--base-spacing, 20px) - 80px));
   opacity: 0;
   user-select: none;
   background-color: rgba(20, 20, 20, 0.95);
@@ -141,7 +142,7 @@ watch(() => props.opened, (newVal) => {
 }
 
 .auth-modal.closing {
-  transform: translateX(calc(-1 * var(--sidebar-width, 350px) - var(--base-spacing, 20px)));
+  transform: translateX(calc(-1 * var(--sidebar-width, 350px) - var(--base-spacing, 20px) - 80px));
   opacity: 0;
 }
 
@@ -215,6 +216,11 @@ watch(() => props.opened, (newVal) => {
   .auth-modal {
     width: 280px;
     left: 10px;
+    transform: translateX(calc(-1 * 280px - 10px));
+  }
+  
+  .auth-modal.closing {
+    transform: translateX(calc(-1 * 280px - 10px));
   }
 }
 </style>

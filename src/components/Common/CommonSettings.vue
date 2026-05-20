@@ -168,6 +168,60 @@
               </div>
             </div>
           </el-collapse-item>
+
+          <!-- 机器人控制 -->
+          <el-collapse-item name="robotControl">
+            <template #title>
+              <span>{{ t('robotControl') }}</span>
+            </template>
+            <div class="settings-group">
+              <!-- robotdog - dogPose 下拉框 -->
+              <div class="setting-row">
+                <div class="setting-label">{{ t('dogPose') }}</div>
+                <div class="setting-control">
+                  <el-select
+                    v-model="dogPose"
+                    size="small"
+                    class="dog-pose-select"
+                  >
+                    <el-option
+                      v-for="option in dogPoseOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </div>
+              </div>
+              <!-- TODO: 业务代码 - 处理 dogPose 变更后的逻辑 -->
+
+              <!-- sensors - 实时影像 开关 -->
+              <div class="setting-row">
+                <div class="setting-label">{{ t('realTimeImage') }}</div>
+                <div class="setting-control">
+                  <el-segmented
+                    v-model="sensorsEnabled"
+                    size="small"
+                    :options="[{ label: t('show'), value: '1' }, { label: t('close'), value: '0' }]"
+                  />
+                </div>
+              </div>
+              <!-- TODO: 业务代码 - 处理 sensors 开关状态变更后的逻辑 -->
+
+              <!-- pointCloudDense - 点云密度 三档选择 -->
+              <div class="setting-row">
+                <div class="setting-label">{{ t('pointCloudDense') }}</div>
+                <div class="setting-control">
+                  <el-segmented
+                    v-model="pointCloudDense"
+                    size="small"
+                    :options="pointCloudDenseOptions"
+                  />
+                </div>
+              </div>
+              <!-- TODO: 业务代码 - 处理 pointCloudDense 档位变更后的逻辑 -->
+            </div>
+          </el-collapse-item>
         </el-collapse>
       </el-scrollbar>
     </div>
@@ -196,7 +250,56 @@ const settingStore = useSettingStore()
 const fileInput = ref(null)
 const sidebarRef = ref(null)
 const isClosing = ref(false)
-const activeCollapses = ref(['appearance', 'filtration'])
+const activeCollapses = ref(['appearance', 'filtration', 'robotControl'])
+
+// robotdog - dogPose 选项（使用计算属性以支持语言切换）
+const dogPoseOptions = computed(() => [
+  { label: t('poseAgile'), value: 'Agile' },
+  { label: t('poseDamping'), value: 'Damping' },
+  { label: t('poseStandLock'), value: 'StandLock' },
+  { label: t('poseSquat1004'), value: 'Squat1004' },
+  { label: t('poseSit'), value: 'Sit' }
+])
+
+// pointCloudDense 选项（使用计算属性以支持语言切换）
+const pointCloudDenseOptions = computed(() => [
+  { label: t('low'), value: 'low' },
+  { label: t('medium'), value: 'medium' },
+  { label: t('high'), value: 'high' }
+])
+
+const robotControl = computed(() => settingStore.robotControl)
+
+// 机器人控制项 - 使用 store 中的状态
+const dogPose = computed({
+  get: () => robotControl.value.dogPose,
+  set: (val) => {
+    settingStore.setRobotControl({
+      ...robotControl.value,
+      dogPose: val
+    })
+  }
+})
+
+const sensorsEnabled = computed({
+  get: () => robotControl.value.sensorsEnabled ? '1' : '0',
+  set: (val) => {
+    settingStore.setRobotControl({
+      ...robotControl.value,
+      sensorsEnabled: val === '1'
+    })
+  }
+})
+
+const pointCloudDense = computed({
+  get: () => robotControl.value.pointCloudDense,
+  set: (val) => {
+    settingStore.setRobotControl({
+      ...robotControl.value,
+      pointCloudDense: val
+    })
+  }
+})
 
 const props = defineProps({
   opened: Boolean
@@ -401,11 +504,12 @@ function handleResetConfig() {
   position: absolute;
   top: calc(var(--header-height, 40px) + 10px);
   bottom: calc(var(--header-height, 40px) + 10px);
-  left: var(--base-spacing, 20px);
+  /* 向右偏移，避开左侧 Toolbar (60px宽度 + 20px间距) */
+  left: calc(var(--base-spacing, 20px) + 80px);
   width: var(--sidebar-width, 350px);
   z-index: 100;
   transition: transform 300ms ease, opacity 200ms ease;
-  transform: translateX(calc(-1 * var(--sidebar-width, 350px) - var(--base-spacing, 20px)));
+  transform: translateX(calc(-1 * var(--sidebar-width, 350px) - var(--base-spacing, 20px) - 80px));
   opacity: 0;
   user-select: none;
   background-color: #141414;
@@ -624,6 +728,28 @@ function handleResetConfig() {
 
 :deep(.el-segmented__item:hover:not(.is-selected)) {
   color: var(--el-text-color-primary);
+}
+
+/* 下拉框样式统一 */
+:deep(.dog-pose-select) {
+  width: 100%;
+}
+
+:deep(.dog-pose-select .el-input__wrapper) {
+  background-color: var(--el-fill-color-light);
+  box-shadow: none;
+  border-radius: 4px;
+}
+
+:deep(.dog-pose-select .el-input__inner) {
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  height: 26px;
+  line-height: 26px;
+}
+
+:deep(.dog-pose-select .el-input__suffix) {
+  color: var(--el-text-color-regular);
 }
 
 @media screen and (max-width: 768px) {

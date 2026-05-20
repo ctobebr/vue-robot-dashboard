@@ -59,10 +59,24 @@ const defaultTools = {
   }
 }
 
+// 机器人控制默认设置
+const defaultRobotControl = {
+  dogPose: 'Squat1004',
+  sensorsEnabled: false,
+  pointCloudDense: 'medium'
+}
+
+// 视频面板默认设置
+const defaultVideoPanel = {
+  minimized: false
+}
+
 export const useSettingStore = defineStore('setting', () => {
   const appearance = ref({ ...defaultAppearance })
   const camera = ref({ ...defaultCamera })
   const tools = ref({ ...defaultTools })
+  const robotControl = ref({ ...defaultRobotControl })
+  const videoPanel = ref({ ...defaultVideoPanel })
 
   function setAppearance(newAppearance) {
     appearance.value = { ...appearance.value, ...newAppearance }
@@ -79,10 +93,20 @@ export const useSettingStore = defineStore('setting', () => {
     }
   }
 
+  function setRobotControl(newRobotControl) {
+    robotControl.value = { ...robotControl.value, ...newRobotControl }
+  }
+
+  function setVideoPanel(newVideoPanel) {
+    videoPanel.value = { ...videoPanel.value, ...newVideoPanel }
+  }
+
   function reset() {
     appearance.value = { ...defaultAppearance }
     camera.value = { ...defaultCamera }
     tools.value = { ...defaultTools }
+    robotControl.value = { ...defaultRobotControl }
+    videoPanel.value = { ...defaultVideoPanel }
   }
 
   const STORAGE_KEY = 'setting-storage'
@@ -95,6 +119,8 @@ export const useSettingStore = defineStore('setting', () => {
         if (parsed.appearance) appearance.value = parsed.appearance
         if (parsed.camera) camera.value = parsed.camera
         if (parsed.tools) tools.value = parsed.tools
+        if (parsed.robotControl) robotControl.value = parsed.robotControl
+        if (parsed.videoPanel) videoPanel.value = parsed.videoPanel
       }
     } catch (e) {
       console.error('Failed to load settings from storage:', e)
@@ -106,15 +132,17 @@ export const useSettingStore = defineStore('setting', () => {
       const data = {
         appearance: appearance.value,
         camera: camera.value,
-        tools: tools.value
+        tools: tools.value,
+        robotControl: robotControl.value,
+        videoPanel: videoPanel.value
       }
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     } catch (e) {
-      console.error('Failed to save settings to storage:', e)
+      console.error('Failed to save settings from storage:', e)
     }
   }
 
-  watch([appearance, camera, tools], () => {
+  watch([appearance, camera, tools, robotControl, videoPanel], () => {
     saveToStorage()
   }, { deep: true })
 
@@ -124,9 +152,13 @@ export const useSettingStore = defineStore('setting', () => {
     appearance,
     camera,
     tools,
+    robotControl,
+    videoPanel,
     setAppearance,
     setCamera,
     setTools,
+    setRobotControl,
+    setVideoPanel,
     reset
   }
 })
