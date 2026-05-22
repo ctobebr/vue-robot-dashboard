@@ -29,9 +29,16 @@ export const useDeviceStore = defineStore('device', () => {
     localStorage.getItem('networks') ||
     '{"ip": "192.168.1.251", "gw": "192.168.1.1", "netMask": "255.255.0.0"}'
   ))
+  // 当前选中的设备ID（用于WebSocket控制）
+  const currentDevice = ref('')
 
   function setSn(newSn) {
     sn.value = newSn
+  }
+
+  function setCurrentDevice(deviceId) {
+    currentDevice.value = deviceId
+    console.log('[DeviceStore] 当前设备已设置:', deviceId)
   }
 
   function setStatus(newStatus) {
@@ -139,7 +146,9 @@ export const useDeviceStore = defineStore('device', () => {
     usage,
     recordingTime,
     networks,
+    currentDevice,
     setSn,
+    setCurrentDevice,
     setStatus,
     setRecording,
     setUsage,

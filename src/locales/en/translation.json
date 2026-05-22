@@ -112,6 +112,13 @@
     "deviceList": "Device List",
     "confirmSelect": "Confirm Selection",
     "items": "items",
+    "noDevices": "No Devices",
+    "loading": "Loading...",
+    "connectedDevice": "Connected Device",
+    "connected": "Connected",
+    "connecting": "Connecting",
+    "connectionFailed": "Connection Failed",
+    "retry": "Retry",
     "logout": "Logout",
     "viewFollow": "View Follow",
     "switchView": "Switch View",
@@ -133,5 +140,7 @@
     "hideVideoPanel": "Hide Video Panel",
     "connected": "Connected",
     "disconnected": "Disconnected",
+    "disconnect": "Disconnect",
+    "deviceDisconnected": "Device disconnected",
     "fullscreen": "Fullscreen"
 }

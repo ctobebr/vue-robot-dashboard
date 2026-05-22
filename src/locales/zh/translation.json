@@ -112,6 +112,13 @@
     "deviceList": "设备列表",
     "confirmSelect": "确认选择",
     "items": "项",
+    "noDevices": "无设备",
+    "loading": "加载中...",
+    "connectedDevice": "已连接设备",
+    "connected": "已连接",
+    "connecting": "连接中",
+    "connectionFailed": "连接失败",
+    "retry": "重试",
     "logout": "退出登录",
     "viewFollow": "视角跟随",
     "switchView": "切换视角",
@@ -133,5 +140,7 @@
     "hideVideoPanel": "隐藏视频面板",
     "connected": "已连接",
     "disconnected": "未连接",
+    "disconnect": "断开连接",
+    "deviceDisconnected": "设备已断开连接",
     "fullscreen": "全屏"
 }

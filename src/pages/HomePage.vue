@@ -68,12 +68,9 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useDeviceStore } from '@/stores/device'
-import { useSocket } from '@/composables/useSocket'
 import { useRobotControl } from '@/composables/useRobotControl'
 import { useMediaControl } from '@/composables/useMediaControl'
 import { useVideoStream } from '@/composables/useVideoStream'
-import request from '@/services/request'
 import Toolbar from '@/components/Toolbar/Toolbar.vue'
 import Header from '@/components/Header/Header.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
@@ -206,109 +203,9 @@ function handleVideoVisibleChange(visible) {
   videoVisible.value = visible
 }
 
-// 设备状态相关
-const deviceStore = useDeviceStore()
-const { socket } = useSocket()
-
-let timer = null
-let intervalId = null
-
-const shouldExecuteMapping = ref(false)
-
-function mappingStart() {
-  if (shouldExecuteMapping.value) {
-    return request.post(
-      `/devices/${import.meta.env.VITE_DEVICE_SN}/mapping_start`
-    ).then((response) => response.data)
-    .catch((error) => {
-      console.error('POST请求出错:', error)
-      throw error
-    })
-  }
-}
-
-function debounce(func, delay) {
-  let timeoutId
-  return function(...args) {
-    clearTimeout(timeoutId)
-    timeoutId = setTimeout(() => func.apply(this, args), delay)
-  }
-}
-
-let tag = 0
-let timeoutId = null
-
-let baseStatusListener = null
-let recordStatusListener = null
-let disconnectListener = null
-
 onMounted(() => {
   // 连接机器人控制
   connectRobot()
-
-  if (socket.value) {
-    intervalId = setInterval(() => {
-      debounce(mappingStart, 1000)()
-    }, 5000)
-
-    baseStatusListener = (msg) => {
-      const { cpuUsage, diskUsage, memoryUsage, navigationStatus } = msg
-
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        deviceStore.setStatus('offline')
-        deviceStore.setRecording(false)
-      }, 5000)
-
-      if (tag === 5) {
-        if (navigationStatus === 1) {
-          if (timeoutId) clearTimeout(timeoutId)
-          shouldExecuteMapping.value = false
-          deviceStore.setStatus('mapping')
-        } else {
-          deviceStore.setStatus('online')
-          shouldExecuteMapping.value = true
-        }
-        deviceStore.setUsage({
-          cpu: cpuUsage,
-          disk: diskUsage,
-          memory: memoryUsage
-        })
-        tag = 0
-      }
-      tag++
-    }
-
-    recordStatusListener = (msg) => {
-      const { value } = msg
-      const isRecordingValue = value === 1
-      setRecordingState(isRecordingValue)
-      deviceStore.setRecording(isRecordingValue)
-    }
-
-    disconnectListener = () => {
-      deviceStore.setStatus('offline')
-      deviceStore.setUsage({
-        cpu: 0,
-        disk: 0,
-        memory: 0
-      })
-    }
-
-    socket.value.on('BaseStatus', baseStatusListener)
-    socket.value.on('RecordStatus', recordStatusListener)
-    socket.value.on('disconnect', disconnectListener)
-  }
-})
-
-onUnmounted(() => {
-  if (intervalId) clearInterval(intervalId)
-  if (timer) clearTimeout(timer)
-  if (socket.value) {
-    if (baseStatusListener) socket.value.off('BaseStatus', baseStatusListener)
-    if (recordStatusListener) socket.value.off('RecordStatus', recordStatusListener)
-    if (disconnectListener) socket.value.off('disconnect', disconnectListener)
-  }
 })
 </script>
 

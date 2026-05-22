@@ -9,10 +9,14 @@ const request = axios.create({
   },
 })
 
-// 请求拦截器
+// 请求拦截器 - 自动添加 Token
 request.interceptors.request.use(
   (config) => {
-    // 可以在这里添加认证信息
+    // 从 localStorage 获取 token
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   (error) => {
@@ -26,8 +30,15 @@ request.interceptors.response.use(
     return response
   },
   (error) => {
-    // 统一处理错误
-    console.error('API Error:', error)
+    // 处理 401 未授权错误
+    if (error.response?.status === 401) {
+      console.error('Token 已过期或无效，请重新登录')
+      // 可以在这里触发登出逻辑
+      // import('@/stores/auth').then(({ useAuthStore }) => {
+      //   const authStore = useAuthStore()
+      //   authStore.logout()
+      // })
+    }
     return Promise.reject(error)
   }
 )

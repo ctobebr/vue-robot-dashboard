@@ -9,12 +9,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
+  define: {
+    // 修复 sockjs-client 的 global 问题
+    global: 'globalThis',
+  },
   server: {
     port: 5173,
     proxy: {
       '/api': {
-        //     target: 'http://192.168.123.38:8080',
-        target: 'http://172.30.14.57:8080',  // ← 切换到测试服务器
+        // target: 'http://192.168.123.38:8080',  // ← 切回原服务器
+        target: 'http://172.30.14.57:8080',  // 测试服务器
         changeOrigin: true,
         configure: (proxy, options) => {
           proxy.on('proxyReq', (proxyReq, req, res) => {

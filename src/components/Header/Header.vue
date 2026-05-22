@@ -51,6 +51,10 @@
               :style="{ backgroundColor: recording ? '#10b981' : '#6b7280' }"
             />
           </div>
+          <div v-if="connected && currentDeviceId" class="status-item disconnect-item" @click="handleDisconnect">
+            <span>{{ t('disconnect') }}</span>
+            <PhPower size="16" color="#e74c3c" />
+          </div>
         </div>
       </el-popover>
     </div>
@@ -228,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDeviceStore } from '@/stores/device'
 import { useSocket } from '@/composables/useSocket'
@@ -236,7 +240,7 @@ import { ElNotification } from 'element-plus'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 import { deviceAPI } from '@/services/api'
-import { PhWifiHigh, PhTarget, PhVinylRecord, PhCaretDown, PhTranslate, PhShareNetwork, PhList, PhPower, PhPlay, PhArrowClockwise, PhInfo, PhVideoCamera, PhPictureInPicture, PhCornersOut, PhGameController } from '@phosphor-icons/vue'
+import { PhWifiHigh, PhTarget, PhVinylRecord, PhCaretDown, PhTranslate, PhShareNetwork, PhList, PhPower, PhPlay, PhArrowClockwise, PhInfo, PhVideoCamera, PhPictureInPicture, PhCornersOut, PhGameController, PhPlug } from '@phosphor-icons/vue'
 import IpInput from '@/components/Input/IpInput.vue'
 
 dayjs.extend(duration)
@@ -248,7 +252,7 @@ const emit = defineEmits(['toggle-sidebar', 'video-visible-change', 'toggle-joys
 
 const { t, locale } = useI18n()
 const deviceStore = useDeviceStore()
-const { socket } = useSocket()
+const { client, connected, currentDeviceId, initSocket, subscribe, unsubscribe, disconnect } = useSocket()
 
 const recordingDialogVisible = ref(false)
 const resetMappingDialogVisible = ref(false)
@@ -488,33 +492,63 @@ async function handleConfirmChangeIp() {
   }
 }
 
+// 订阅引用
+let ipChangeSub = null
+let hasSubscribedHeader = false
+
 onMounted(() => {
-  if (socket.value) {
-    socket.value.on('ChangeLidarIpAck', (msg) => {
-      if (msg.ackCode === 1) {
-        ElNotification({
-          title: t('ipUpdateSuccess'),
-          message: t('ipUpdateSuccessMessage'),
-          type: 'success',
-          duration: 5000
-        })
-      } else if (msg.ackCode === -1) {
-        ElNotification({
-          title: t('ipUpdateFailed'),
-          message: t('ipUpdateFailedMessage'),
-          type: 'error',
-          duration: 5000
-        })
+  if (deviceStore.currentDevice) {
+    initSocket(deviceStore.currentDevice)
+  }
+})
+
+watch([connected, () => deviceStore.currentDevice], ([isConnected, deviceId]) => {
+  if (isConnected && deviceId && !hasSubscribedHeader) {
+    hasSubscribedHeader = true
+    ipChangeSub = subscribe(deviceId, 'status', (msg) => {
+      if (msg.type === 'ChangeLidarIpAck') {
+        const data = msg.data || msg
+        if (data.ackCode === 1) {
+          ElNotification({
+            title: t('ipUpdateSuccess'),
+            message: t('ipUpdateSuccessMessage'),
+            type: 'success',
+            duration: 5000
+          })
+        } else if (data.ackCode === -1) {
+          ElNotification({
+            title: t('ipUpdateFailed'),
+            message: t('ipUpdateFailedMessage'),
+            type: 'error',
+            duration: 5000
+          })
+        }
       }
     })
+  }
+  if (!isConnected || !deviceId) {
+    hasSubscribedHeader = false
   }
 })
 
 onUnmounted(() => {
-  if (socket.value) {
-    socket.value.off('ChangeLidarIpAck')
+  // 取消订阅
+  if (deviceStore.currentDevice) {
+    unsubscribe(deviceStore.currentDevice, 'status')
   }
 })
+
+// 断开连接处理
+function handleDisconnect() {
+  disconnect()
+  deviceStore.setStatus('offline')
+  ElNotification({
+    title: t('disconnected'),
+    message: t('deviceDisconnected'),
+    type: 'info',
+    duration: 3000
+  })
+}
 </script>
 
 <style scoped>
@@ -690,6 +724,18 @@ onUnmounted(() => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+}
+
+.disconnect-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.disconnect-item:hover {
+  opacity: 0.8;
 }
 
 .header-action-btn {

@@ -1,18 +1,18 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getCaptcha, login, register } from '@/services/api/auth'
+import { getCaptcha, login, register, getCurrentUser } from '@/services/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   // State
   const token = ref(localStorage.getItem('token') || null)
-  const userInfo = ref(() => {
+  const userInfo = ref((() => {
     try {
       const stored = localStorage.getItem('userInfo')
       return stored ? JSON.parse(stored) : null
     } catch {
       return null
     }
-  })
+  })())
   const isLoggedIn = ref(!!token.value)
   const captchaKey = ref(null)
   const captchaImage = ref(null)
@@ -62,15 +62,20 @@ export const useAuthStore = defineStore('auth', () => {
           const now = Date.now()
           const expiresInMs = expiresIn * 1000
           const tokenExpires = now + expiresInMs
-          // console.log('设置过期时间:', {
-          //   now: now,
-          //   expiresIn: expiresIn,
-          //   expiresInMs: expiresInMs,
-          //   tokenExpires: tokenExpires,
-          //   expiresDate: new Date(tokenExpires).toLocaleString()
-          // })
           localStorage.setItem('tokenExpires', tokenExpires)
         }
+
+        // ===== 测试：登录成功后调用 /api/users/me 验证 Token =====
+        console.log('===== 开始测试 Token 认证 =====')
+        console.log('当前 Token:', newToken)
+        try {
+          const userRes = await getCurrentUser()
+          console.log('✅ /api/users/me 调用成功:', userRes.data)
+        } catch (userError) {
+          console.error('❌ /api/users/me 调用失败:', userError.response?.data || userError.message)
+        }
+        console.log('===== Token 测试结束 =====')
+        // =====================================================
 
         return { success: true, message: '登录成功' }
       } else {

@@ -58,7 +58,67 @@ export function logout() {
 }
 
 /**
- * 获取当前用户信息
+ * 获取当前登录用户信息（/api/users/me）
+ * @returns {Promise}
+ */
+export function getCurrentUser() {
+  return request({
+    url: '/users/me',
+    method: 'get'
+  })
+}
+
+/**
+ * 获取所有用户列表（/api/users/getAllUsers）
+ * @returns {Promise}
+ */
+export function getAllUsers() {
+  return request({
+    url: '/users/getAllUsers',
+    method: 'get'
+  })
+}
+
+/**
+ * 根据ID查询用户
+ * @param {number} id 用户ID
+ * @returns {Promise}
+ */
+export function getUserById(id) {
+  return request({
+    url: `/users/${id}`,
+    method: 'get'
+  })
+}
+
+/**
+ * 更新用户信息
+ * @param {number} id 用户ID
+ * @param {Object} data 用户数据
+ * @returns {Promise}
+ */
+export function updateUser(id, data) {
+  return request({
+    url: `/users/${id}`,
+    method: 'put',
+    data
+  })
+}
+
+/**
+ * 删除用户
+ * @param {number} id 用户ID
+ * @returns {Promise}
+ */
+export function deleteUser(id) {
+  return request({
+    url: `/users/${id}`,
+    method: 'delete'
+  })
+}
+
+/**
+ * 获取当前用户信息（旧接口，保留兼容）
  * @returns {Promise}
  */
 export function getUserInfo() {

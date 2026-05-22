@@ -1,6 +1,9 @@
 import request from '../request'
 
 const deviceAPI = {
+  // 获取所有在线设备
+  getAllDevices: () => request.get('/devices/getAllDevices'),
+
   // 获取数据详情列表
   getDataDetails: () => request.get('/dataDetails'),
 

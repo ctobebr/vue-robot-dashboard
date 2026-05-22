@@ -1,106 +1,233 @@
-// ### 1.1 Socket连接管理修改
+// ### WebSocket连接管理 - STOMP协议版本
 
-// #### 修改原因：
-
-// - 适配后端重构后的Socket服务地址和端口
-// - 确保与后端新的Socket事件格式兼容
-
-
-import { io } from 'socket.io-client'
+import { Client } from '@stomp/stompjs'
 import { ref, onUnmounted, provide, inject } from 'vue'
+import SockJS from 'sockjs-client'
 
 const SocketKey = Symbol('socket')
 
-/**
- * Socket 内部初始化函数
- * 用于创建和管理 Socket.io 连接实例
- * 
- * @returns {Object} 返回包含 socket 实例的对象
- * @property {Ref} socket - Socket.io 连接实例的响应式引用
- */
-function useSocketInternal() {
-  // 声明响应式的 socket 实例引用
-  const socket = ref(null)
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://172.30.14.57:8080'
 
-  /**
-   * 初始化 Socket.io 连接
-   * 仅在 socket 实例不存在时创建新连接
-   * 
-   * @returns {void}
-   */
-  function initSocket() {
-    // 如果 socket 实例已存在，直接返回
-    if (socket.value) return
-    
-    // 创建新的 Socket.io 连接
-    // 连接地址格式：http://{hostname}:8000/{deviceSN}
-    // 配置自动重连机制
-    const newSocket = io(`http://${window.location.hostname}:8000/${import.meta.env.VITE_DEVICE_SN}`, {
-      reconnection: true,              // 启用自动重连
-      reconnectionAttempts: Infinity,  // 无限次重连尝试
-      reconnectionDelay: 1000,         // 重连延迟 1000ms
-      reconnectionDelayMax: 5000,      // 最大重连延迟 5000ms
-    })
-
-    // 监听连接成功事件
-    newSocket.on('connect', () => {
-    })
-
-    // 监听连接错误事件
-    newSocket.on('connect_error', () => {
-    })
-
-    // 保存 socket 实例
-    socket.value = newSocket
-  }
-
-  // 组件卸载时关闭 socket 连接
-  onUnmounted(() => {
-    if (socket.value) {
-      socket.value.close()
-    }
-  })
-
-  // 初始化 socket 连接
-  initSocket()
-
-  // 返回 socket 实例
-  return {
-    socket
+function parseSocketUrl(url) {
+  try {
+    const urlObj = new URL(url)
+    return { host: urlObj.hostname, port: urlObj.port || '8080' }
+  } catch (e) {
+    return { host: '172.30.14.57', port: '8080' }
   }
 }
 
-/**
- * 提供 Socket 实例给 Vue 应用
- * 使用 Vue 的 provide 机制将 socket 实例注入到应用中
- * 
- * @returns {Object} 返回 socket 实例对象
- * @property {Ref} socket - Socket.io 连接实例的响应式引用
- */
+const { host: WS_SERVER_HOST, port: WS_SERVER_PORT } = parseSocketUrl(SOCKET_URL)
+
+function useSocketInternal() {
+  const client = ref(null)
+  const connected = ref(false)
+  const connectionError = ref(null)
+  const subscriptions = ref(new Map())
+  const currentDeviceId = ref(null)
+  const heartbeatInterval = ref(null)
+
+  function log(message, data = null) {
+    if (data) {
+      console.log(`[WebSocket] ${message}`, data)
+    } else {
+      console.log(`[WebSocket] ${message}`)
+    }
+  }
+
+  function createSockJSFactory(baseUrl) {
+    return () => new SockJS(baseUrl)
+  }
+
+  async function initSocket(deviceId = null) {
+    if (client.value && connected.value && currentDeviceId.value === deviceId) {
+      return
+    }
+
+    if (client.value) {
+      disconnect()
+    }
+
+    currentDeviceId.value = deviceId
+    const token = localStorage.getItem('token')
+    const sockjsBaseUrl = `http://${WS_SERVER_HOST}:${WS_SERVER_PORT}/ws/robot`
+
+    const clientConfig = {
+      connectHeaders: { Authorization: `Bearer ${token || ''}` },
+      reconnectDelay: 30000,
+      heartbeatIncoming: 0,
+      heartbeatOutgoing: 0,
+    }
+
+    clientConfig.webSocketFactory = createSockJSFactory(sockjsBaseUrl)
+
+    const stompClient = new Client(clientConfig)
+
+    stompClient.onConnect = () => {
+      log('连接已建立', { deviceId })
+      connected.value = true
+      connectionError.value = null
+      
+      // 监听后端发送的消息（用于调试，在控制台输出）
+      if (deviceId) {
+        const deviceQueue = `/queue/device/${deviceId}`
+        stompClient.subscribe(deviceQueue, (message) => {
+          console.log('[WebSocket] 收到后端消息:', { destination: deviceQueue, body: message.body })
+        })
+      }
+      
+      // 启动心跳检测
+      startHeartbeat()
+    }
+
+    stompClient.onStompError = (frame) => {
+      log('连接错误', { message: frame.headers['message'] })
+      connected.value = false
+      connectionError.value = frame.headers['message']
+    }
+
+    stompClient.onWebSocketClose = () => {
+      log('连接已断开')
+      connected.value = false
+      stopHeartbeat()
+    }
+
+    stompClient.activate()
+    client.value = stompClient
+  }
+
+  function subscribe(deviceId, topic, callback) {
+    if (!client.value || !connected.value) return null
+
+    const subKey = `${deviceId}-${topic}`
+    
+    // 检查是否已经订阅过，防止重复订阅
+    if (subscriptions.value.has(subKey)) {
+      log('设备已订阅，跳过重复订阅', { deviceId, topic })
+      return subscriptions.value.get(subKey)
+    }
+
+    const destination = `/topic/device/${deviceId}/${topic}`
+    const token = localStorage.getItem('token')
+
+    // 发送订阅请求
+    client.value.publish({
+      destination: '/app/device/subscribe',
+      body: JSON.stringify({ deviceId }),
+      headers: { Authorization: `Bearer ${token || ''}` }
+    })
+
+    const subscription = client.value.subscribe(destination, (message) => {
+      try {
+        callback(JSON.parse(message.body))
+      } catch (e) {
+        callback(message.body)
+      }
+    })
+
+    subscriptions.value.set(subKey, subscription)
+    log('设备已订阅', { deviceId, topic })
+    return subscription
+  }
+
+  function unsubscribe(deviceId, topic) {
+    const subKey = `${deviceId}-${topic}`
+    if (subscriptions.value.has(subKey)) {
+      subscriptions.value.get(subKey).unsubscribe()
+      subscriptions.value.delete(subKey)
+      log('设备已取消订阅', { deviceId, topic })
+    }
+  }
+
+  function unsubscribeAll() {
+    subscriptions.value.forEach((sub) => {
+      sub.unsubscribe()
+    })
+    subscriptions.value.clear()
+  }
+
+  function sendCommand(deviceId, commandType, message) {
+    if (!client.value || !connected.value) {
+      console.warn('[WebSocket] 未连接，无法发送命令')
+      return false
+    }
+
+    const token = localStorage.getItem('token')
+    
+    // 如果 message 已经是完整的协议格式，直接发送
+    // 否则包装成旧格式（兼容）
+    const finalMessage = message.msg_cmd ? message : {
+      deviceId,
+      command: commandType,
+      parameters: message
+    }
+    
+    client.value.publish({
+      destination: '/app/device/command',
+      body: JSON.stringify(finalMessage),
+      headers: { Authorization: `Bearer ${token || ''}` }
+    })
+    return true
+  }
+
+  function startHeartbeat() {
+    // 每30秒检测一次连接状态
+    heartbeatInterval.value = setInterval(() => {
+      if (client.value && client.value.connected) {
+        log('心跳检测：连接正常')
+      } else {
+        log('心跳检测：连接已断开')
+        connected.value = false
+        stopHeartbeat()
+      }
+    }, 30000)
+  }
+  
+  function stopHeartbeat() {
+    if (heartbeatInterval.value) {
+      clearInterval(heartbeatInterval.value)
+      heartbeatInterval.value = null
+    }
+  }
+
+  function disconnect() {
+    if (client.value) {
+      stopHeartbeat()
+      unsubscribeAll()
+      client.value.deactivate()
+      client.value = null
+      connected.value = false
+      currentDeviceId.value = null
+      log('连接已断开')
+    }
+  }
+
+  onUnmounted(() => disconnect())
+
+  return {
+    client,
+    connected,
+    connectionError,
+    currentDeviceId,
+    initSocket,
+    subscribe,
+    unsubscribe,
+    unsubscribeAll,
+    sendCommand,
+    disconnect
+  }
+}
+
 export function provideSocket() {
-  // 获取 socket 实例
   const socketInstance = useSocketInternal()
-  // 使用 provide 机制注入 socket 实例
   provide(SocketKey, socketInstance)
-  // 返回 socket 实例
   return socketInstance
 }
 
-/**
- * 获取 Socket 实例的组合式函数
- * 使用 Vue 的 inject 机制从应用中获取 socket 实例
- * 
- * @returns {Object} 返回 socket 实例对象
- * @property {Ref} socket - Socket.io 连接实例的响应式引用
- * @throws {Error} 如果在没有调用 provideSocket() 的情况下使用，会抛出错误
- */
 export function useSocket() {
-  // 从应用中注入 socket 实例
   const socketInstance = inject(SocketKey)
-  // 检查 socket 实例是否存在
   if (!socketInstance) {
     throw new Error('useSocket() is called without provideSocket()')
   }
-  // 返回 socket 实例
   return socketInstance
 }

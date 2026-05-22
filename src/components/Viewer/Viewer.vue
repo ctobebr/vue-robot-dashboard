@@ -18,6 +18,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { load, registerLoaders, setLoaderOptions } from '@loaders.gl/core'
 import { DracoLoader } from '@loaders.gl/draco'
 import { useSettingStore } from '@/stores/setting'
+import { useDeviceStore } from '@/stores/device'
 import { useSocket } from '@/composables/useSocket'
 import StatsGl from './StatsGl.vue'
 import ClipVolume from './ClipVolume.vue'
@@ -31,7 +32,8 @@ setLoaderOptions({
 })
 
 const settingStore = useSettingStore()
-const { socket } = useSocket()
+const deviceStore = useDeviceStore()
+const { client, connected, subscribe, unsubscribe } = useSocket()
 
 const containerRef = ref(null)
 const rendererRef = ref(null)
@@ -426,71 +428,91 @@ function handleResize() {
   renderer.setSize(containerRef.value.clientWidth, containerRef.value.clientHeight)
 }
 
+// 订阅引用
+let pointCloudSub = null
+let baseStatusSub = null
+
+// 标记是否已经订阅，防止重复订阅
+let hasSubscribed = false
+
 function setupSocketListeners() {
-  if (!socket.value) return
-  
-  let minX = 0, minY = 0, minZ = 0, maxX = 0, maxY = 0, maxZ = 0
-  
-  socket.value.on('PointCloud', (msg) => {
-    load(msg, DracoLoader, { worker: false }).then((data) => {
-      const { POSITION, COLOR_0 } = data.attributes
-      const { vertexCount, boundingBox } = data.header
-      
-      if (minX > boundingBox[0][0]) minX = boundingBox[0][0]
-      if (minY > boundingBox[0][1]) minY = boundingBox[0][1]
-      if (minZ > boundingBox[0][2]) minZ = boundingBox[0][2]
-      if (maxX < boundingBox[1][0]) maxX = boundingBox[1][0]
-      if (maxY < boundingBox[1][1]) maxY = boundingBox[1][1]
-      if (maxZ < boundingBox[1][2]) maxZ = boundingBox[1][2]
-      
-      minVertex.set(minX, minY, minZ)
-      maxVertex.set(maxX, maxY, maxZ)
-      maxLong = Math.abs(maxX) + Math.abs(minX)
-      maxWidth = Math.abs(maxY) + Math.abs(minY)
-      maxHeight = Math.abs(maxZ) + Math.abs(minZ)
-      
-      const geometry = new THREE.BufferGeometry()
-      geometry.setAttribute('color', new THREE.BufferAttribute(COLOR_0.value, 3, true))
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(POSITION.value, POSITION.size))
-      
-      if (firstPoints.length >= 100) {
-        firstPoints.shift()
-      }
-      firstPoints.push(geometry)
-      
-      if (settingStore.appearance.collectionMode === 'work') {
-        if (thirdPoints.length > 3000) {
-          thirdPoints.shift()
+  watch([connected, () => deviceStore.currentDevice], ([isConnected, deviceId]) => {
+    if (isConnected && deviceId && !hasSubscribed) {
+      hasSubscribed = true
+      let minX = 0, minY = 0, minZ = 0, maxX = 0, maxY = 0, maxZ = 0
+
+      pointCloudSub = subscribe(deviceId, 'data', (msg) => {
+        if (msg.type === 'PointCloud') {
+          const data = msg.data || msg
+          load(data, DracoLoader, { worker: false }).then((loadedData) => {
+            const { POSITION, COLOR_0 } = loadedData.attributes
+            const { vertexCount, boundingBox } = loadedData.header
+
+            if (minX > boundingBox[0][0]) minX = boundingBox[0][0]
+            if (minY > boundingBox[0][1]) minY = boundingBox[0][1]
+            if (minZ > boundingBox[0][2]) minZ = boundingBox[0][2]
+            if (maxX < boundingBox[1][0]) maxX = boundingBox[1][0]
+            if (maxY < boundingBox[1][1]) maxY = boundingBox[1][1]
+            if (maxZ < boundingBox[1][2]) maxZ = boundingBox[1][2]
+
+            minVertex.set(minX, minY, minZ)
+            maxVertex.set(maxX, maxY, maxZ)
+            maxLong = Math.abs(maxX) + Math.abs(minX)
+            maxWidth = Math.abs(maxY) + Math.abs(minY)
+            maxHeight = Math.abs(maxZ) + Math.abs(minZ)
+
+            const geometry = new THREE.BufferGeometry()
+            geometry.setAttribute('color', new THREE.BufferAttribute(COLOR_0.value, 3, true))
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(POSITION.value, POSITION.size))
+
+            if (firstPoints.length >= 100) {
+              firstPoints.shift()
+            }
+            firstPoints.push(geometry)
+
+            if (settingStore.appearance.collectionMode === 'work') {
+              if (thirdPoints.length > 3000) {
+                thirdPoints.shift()
+              }
+              thirdPoints.push(geometry)
+            } else {
+              thirdPoints.push(geometry)
+            }
+
+            renderPointClouds()
+            updatePointCloudMaterial()
+          })
         }
-        thirdPoints.push(geometry)
-      } else {
-        thirdPoints.push(geometry)
-      }
-      
-      renderPointClouds()
-      updatePointCloudMaterial()
-    })
-  })
-  
-  socket.value.on('BaseStatus', (msg) => {
-    const { position, orientation } = msg.currentPose
-    const { x, y, z } = position
-    const { x: qx, y: qy, z: qz, w: qw } = orientation
-    
-    const newPoint = new THREE.Vector3(x, y, z)
-    updateFootprint(newPoint)
-    
-    latestOrientation = new THREE.Quaternion(qx, qy, qz, qw)
-    latestPosition = new THREE.Vector3(x, y, z).add(
-      new THREE.Vector3(
-        settingStore.camera.offset[0],
-        settingStore.camera.offset[1],
-        settingStore.camera.offset[2]
-      )
-    )
-    
-    const euler = new THREE.Euler().setFromQuaternion(latestOrientation)
-    updateLocation([x, y, z], [euler.x, euler.y, euler.z])
+      })
+
+      baseStatusSub = subscribe(deviceId, 'status', (msg) => {
+        if (msg.type === 'BaseStatus') {
+          const data = msg.data || msg
+          const { position, orientation } = data.currentPose || data
+          const { x, y, z } = position
+          const { x: qx, y: qy, z: qz, w: qw } = orientation
+
+          const newPoint = new THREE.Vector3(x, y, z)
+          updateFootprint(newPoint)
+
+          latestOrientation = new THREE.Quaternion(qx, qy, qz, qw)
+          latestPosition = new THREE.Vector3(x, y, z).add(
+            new THREE.Vector3(
+              settingStore.camera.offset[0],
+              settingStore.camera.offset[1],
+              settingStore.camera.offset[2]
+            )
+          )
+
+          const euler = new THREE.Euler().setFromQuaternion(latestOrientation)
+          updateLocation([x, y, z], [euler.x, euler.y, euler.z])
+        }
+      })
+    }
+
+    if (!isConnected || !deviceId) {
+      hasSubscribed = false
+    }
   })
 }
 
@@ -621,9 +643,10 @@ onUnmounted(() => {
   cancelAnimationFrame(animationId)
   window.removeEventListener('resize', handleResize)
 
-  if (socket.value) {
-    socket.value.off('PointCloud')
-    socket.value.off('BaseStatus')
+  // 取消STOMP订阅
+  if (deviceStore.currentDevice) {
+    unsubscribe(deviceStore.currentDevice, 'data')
+    unsubscribe(deviceStore.currentDevice, 'status')
   }
 
   if (axesHelper) {
