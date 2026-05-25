@@ -29,6 +29,16 @@ export default defineConfig({
           })
         },
         rewrite: (path) => path.replace(/^\/api/, '/api')
+      },
+      '/live-api': {
+        target: 'http://172.30.14.57:10800',  // 推流服务
+        changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            console.log('[推流代理]', req.method, req.url, '->', options.target + req.url)
+          })
+        },
+        rewrite: (path) => path.replace(/^\/live-api/, '/api')
       }
     }
   }

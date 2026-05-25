@@ -176,8 +176,8 @@ const activeTouchId = ref(null)
  */
 const config = {
   joystick: {
-    maxFrequency: 25,
-    minInterval: 40,  // 摇杆拖动最多 约25次/秒
+    // maxFrequency: 30,  // 实际频率 ：1000 ÷ minInterval = 30 次/秒（30Hz）
+    minInterval: 33,  // 摇杆拖动 30次/秒
     threshold: {
       x: 0.05,
       y: 0.05,
@@ -185,8 +185,8 @@ const config = {
     }
   },
   key: {
-    maxFrequency: 12,
-    minInterval: 83,  //  方向键长按最多 约12次/秒
+    // maxFrequency: 10,  // 实际频率 ：1000 ÷ minInterval = 10 次/秒（10Hz）
+    minInterval: 100,  // 方向键长按 10次/秒
     fixedSpeed: 0.6
   },
   safety: {

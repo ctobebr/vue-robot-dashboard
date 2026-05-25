@@ -54,13 +54,33 @@ export function useRobotControl() {
   const leftJoystick = ref({ move: null, stop: null })
   const rightJoystick = ref({ move: null, stop: null })
 
+  const leftState = ref({ x: 0, y: 0, strength: 0 })
+  const rightState = ref({ x: 0, y: 0, strength: 0 })
+
+  const lastStopSide = ref('')
+  const lastStopTime = ref(0)
+
+  function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val))
+  }
+
   /**
    * 发送机器人移动指令
    * 按照 doc.md 中的行走控制格式发送消息
+   *
+   * 转换规则:
+   *   左摇杆 y轴 (上推=负值 / 下推=正值) → cmd_velx (前进=正值 / 后退=负值)
+   *     → cmd_velx = -left.y × 100   范围 [-100, 100]
+   *   左摇杆 x轴 (右推=正值 / 左推=负值) → cmd_vely (左移=正值 / 右移=负值)
+   *     → cmd_vely = -left.x × 100   范围 [-100, 100]
+   *   右摇杆 x轴 (右推=正值/顺时针 / 左推=负值/逆时针) → cmd_yaw (顺时针=正值 / 逆时针=负值)
+   *     → cmd_yaw = right.x × 100    范围 [-100, 100]
+   *
    * @param {Direction} direction 方向数据对象
+   * @param {'left'|'right'} side 摇杆侧边
    * @returns {void}
    */
-  function sendMove(direction) {
+  function sendMove(direction, side = 'left') {
     if (!connected.value) {
       console.warn('[RobotControl] WebSocket未连接，无法发送移动指令')
       return
@@ -71,64 +91,62 @@ export function useRobotControl() {
       return
     }
 
-    // 将摇杆的 x, y 转换为机器人速度控制
-    // 摇杆坐标系：x 左右（-1到1，正值=右推），y 上下（-1到1，正值=前推）
-    // 机器人坐标系：
-    //   - cmd_velx：前后方向线速度（正值=前进，负值=后退，单位 m/s）
-    //   - cmd_vely：左右方向线速度（正值=向左，负值=向右，单位 m/s）
-    //   - cmd_yaw：绕Z轴角速度（正值=逆时针，负值=顺时针，单位 rad/s）
-    const maxSpeed = 1.0
-    const maxYawSpeed = 1.0
+    if (side === 'left') {
+      leftState.value = { ...direction }
+    } else {
+      rightState.value = { ...direction }
+    }
 
-    const linearSpeed = Math.abs(direction.y) * maxSpeed
-    const lateralSpeed = Math.abs(direction.x) * maxSpeed
-    const yawSpeed = Math.abs(direction.x) * maxYawSpeed
+    const left = leftState.value
+    const right = rightState.value
 
-    const cmdVelX = direction.y * linearSpeed
-    const cmdVelY = -direction.x * lateralSpeed
-    const cmdYaw = -direction.x * yawSpeed
+    const cmdVelX = clamp(-left.y * 100, -100, 100)
+    const cmdVelY = clamp(-left.x * 100, -100, 100)
+    const cmdYaw = clamp(right.x * 100, -100, 100)
 
-    // 按照 doc.md 中的行走控制格式构建消息
     const message = {
       session_id: sessionId++,
       protocol_version: "v1.0.0",
       timestamp: getTimestamp(),
-      msg_type: 0,  // 0为消息
-      msg_cmd: 3006, // 行走控制命令
+      msg_type: 0,
+      msg_cmd: 3006,
       data: {
-        cmd_velx: parseFloat(cmdVelX.toFixed(3)),
-        cmd_vely: parseFloat(cmdVelY.toFixed(3)),
-        cmd_yaw: parseFloat(cmdYaw.toFixed(3))
+        cmd_velx: parseFloat(cmdVelX.toFixed(1)),
+        cmd_vely: parseFloat(cmdVelY.toFixed(1)),
+        cmd_yaw: parseFloat(cmdYaw.toFixed(1))
       }
     }
 
-    // 在控制台展示发送的命令（用于测试）
     console.log('===== [RobotControl] 发送行走控制命令 =====')
     console.log('设备ID:', deviceStore.currentDevice)
-    console.log('原始摇杆数据:', {
-      x: direction.x,
-      y: direction.y,
-      strength: direction.strength
-    })
-    console.log('转换后的速度:', {
+    console.log('触发摇杆:', side === 'left' ? '左摇杆' : '右摇杆')
+    console.log('左摇杆原始数据:', { x: left.x, y: left.y, strength: left.strength })
+    console.log('右摇杆原始数据:', { x: right.x, y: right.y, strength: right.strength })
+    console.log('转换后速度值:', {
       cmd_velx: message.data.cmd_velx,
       cmd_vely: message.data.cmd_vely,
       cmd_yaw: message.data.cmd_yaw
     })
-    console.log('完整消息体:', JSON.stringify(message, null, 2))
+    //console.log('完整消息体:', JSON.stringify(message, null, 2))
+    console.log('发送包裹格式:', JSON.stringify({
+      command: message,
+      deviceId: deviceStore.currentDevice,
+      parameters: {}
+    }, null, 2))
     console.log('目标地址:', '/app/device/command')
     console.log('=========================================')
 
-    // 使用STOMP发送命令
     sendCommand(deviceStore.currentDevice, 'robot:move', message)
   }
 
   /**
    * 发送机器人停止指令
+   * 当某个摇杆释放时，仅将该摇杆的速度分量置零，
+   * 若另一个摇杆仍在操作则保留其速度值，组合后发送
    * @param {string} [side='all'] 停止侧边（'left'|'right'|'all'）
    * @returns {void}
    */
-  function sendStop(side) {
+  function sendStop(side = 'all') {
     if (!connected.value) {
       console.warn('[RobotControl] WebSocket未连接，无法发送停止指令')
       return
@@ -139,7 +157,27 @@ export function useRobotControl() {
       return
     }
 
-    // 停止命令也使用相同的格式，但速度为0
+    const now = Date.now()
+    if (side === lastStopSide.value && now - lastStopTime.value < 200) {
+      return
+    }
+    lastStopSide.value = side
+    lastStopTime.value = now
+
+    if (side === 'left' || side === 'all') {
+      leftState.value = { x: 0, y: 0, strength: 0 }
+    }
+    if (side === 'right' || side === 'all') {
+      rightState.value = { x: 0, y: 0, strength: 0 }
+    }
+
+    const left = leftState.value
+    const right = rightState.value
+
+    const cmdVelX = clamp(-left.y * 100, -100, 100)
+    const cmdVelY = clamp(-left.x * 100, -100, 100)
+    const cmdYaw = clamp(right.x * 100, -100, 100)
+
     const message = {
       session_id: sessionId++,
       protocol_version: "v1.0.0",
@@ -147,18 +185,29 @@ export function useRobotControl() {
       msg_type: 0,
       msg_cmd: 3006,
       data: {
-        cmd_velx: 0,
-        cmd_vely: 0,
-        cmd_yaw: 0
+        cmd_velx: parseFloat(cmdVelX.toFixed(1)),
+        cmd_vely: parseFloat(cmdVelY.toFixed(1)),
+        cmd_yaw: parseFloat(cmdYaw.toFixed(1))
       }
     }
 
     console.log('===== [RobotControl] 发送停止命令 =====')
     console.log('设备ID:', deviceStore.currentDevice)
-    console.log('完整消息体:', JSON.stringify(message, null, 2))
+    console.log('停止侧边:', side === 'all' ? '全部' : (side === 'left' ? '左摇杆' : '右摇杆'))
+    console.log('当前左摇杆状态:', { x: left.x, y: left.y, strength: left.strength })
+    console.log('当前右摇杆状态:', { x: right.x, y: right.y, strength: right.strength })
+    console.log('转换后速度值:', {
+      cmd_velx: message.data.cmd_velx,
+      cmd_vely: message.data.cmd_vely,
+      cmd_yaw: message.data.cmd_yaw
+    })
+    console.log('发送包裹格式:', JSON.stringify({
+      command: JSON.stringify(message),
+      deviceId: deviceStore.currentDevice,
+      parameters: {}
+    }, null, 2))
     console.log('=========================================')
 
-    // 使用STOMP发送命令
     sendCommand(deviceStore.currentDevice, 'robot:stop', message)
   }
 

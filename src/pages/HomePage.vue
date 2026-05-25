@@ -23,9 +23,9 @@
     
     <!-- 视频显示区域 -->
     <div class="control-panel video-panel" v-if="videoVisible">
-      <VideoDisplay 
-        :videoSrc="videoSrc"
-        :isConnected="isVideoConnected"
+      <VideoDisplay
+        :webrtcUrl="webrtcUrl"
+        :isConnected="!!webrtcUrl"
         @refresh="handleVideoRefresh"
         @fullscreen="handleVideoFullscreen"
       />
@@ -71,6 +71,9 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRobotControl } from '@/composables/useRobotControl'
 import { useMediaControl } from '@/composables/useMediaControl'
 import { useVideoStream } from '@/composables/useVideoStream'
+import { useLiveStream } from '@/composables/useLiveStream'
+import { useDeviceStore } from '@/stores/device'
+import { ElMessage } from 'element-plus'
 import Toolbar from '@/components/Toolbar/Toolbar.vue'
 import Header from '@/components/Header/Header.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
@@ -95,13 +98,13 @@ const joystickShowStatus = ref(false) // 控制showStatus属性
 const joysticksVisible = ref(true) // 控制摇杆容器显示
 
 // 视频相关状态
-const videoSrc = ref('')
-const isVideoConnected = ref(false)
+const webrtcUrl = ref('')
 
 // 初始化 composables
 const { sendMove, sendStop, connect: connectRobot } = useRobotControl()
 const { isRecording, capture, startRecord, stopRecord, setRecordingState } = useMediaControl()
-const { refresh: refreshVideo, setConnected: setVideoConnected } = useVideoStream()
+const { autoConnect: connectLiveStream, disconnect: disconnectLiveStream } = useLiveStream()
+const deviceStore = useDeviceStore()
 
 // 摇杆显示状态切换处理
 function handleJoystickStateChange(state) {
@@ -124,7 +127,7 @@ function handleJoystickStateChange(state) {
 
 // 摇杆事件处理
 function handleLeftJoystickMove(direction) {
-  sendMove(direction)
+  sendMove(direction, 'left')
 }
 
 function handleLeftJoystickStop() {
@@ -132,7 +135,7 @@ function handleLeftJoystickStop() {
 }
 
 function handleRightJoystickMove(direction) {
-  sendMove(direction)
+  sendMove(direction, 'right')
 }
 
 function handleRightJoystickStop() {
@@ -153,8 +156,23 @@ async function handleRecorderClick(active) {
 }
 
 // 视频事件处理
-function handleVideoRefresh() {
-  refreshVideo()
+async function handleVideoRefresh() {
+  // 检查是否已连接设备
+  if (!deviceStore.currentDevice) {
+    ElMessage.warning('请先连接设备后再查看视频')
+    console.warn('[HomePage] 未连接设备，无法获取直播流')
+    return
+  }
+
+  // 尝试连接直播流
+  const url = await connectLiveStream()
+  if (url) {
+    webrtcUrl.value = url
+    console.log('[HomePage] 直播流连接成功:', url)
+  } else {
+    console.warn('[HomePage] 没有可用的直播流')
+    webrtcUrl.value = ''
+  }
 }
 
 function handleVideoFullscreen() {
@@ -206,6 +224,7 @@ function handleVideoVisibleChange(visible) {
 onMounted(() => {
   // 连接机器人控制
   connectRobot()
+  // 注意：直播流不再自动连接，用户点击视频面板恢复按钮时手动触发
 })
 </script>
 
@@ -226,7 +245,7 @@ onMounted(() => {
 .video-panel {
   top: 40px;
   left: 10px;
-  width: 300px;
+  width: 800px;
 }
 
 /* 左下角Joystick */

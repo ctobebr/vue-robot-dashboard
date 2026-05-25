@@ -5,9 +5,9 @@
       <div class="video-header">
         <h3>{{ t('videoPanel') }}</h3>
         <div class="video-controls">
-          <div class="control-icon" @click="toggleFullscreen" :title="t('fullscreen')">
+          <!-- <div class="control-icon" @click="toggleFullscreen" :title="t('fullscreen')">
             <el-icon><FullScreen /></el-icon>
-          </div>
+          </div> -->
           <div class="control-icon" @click="refreshVideo" :title="t('refresh')">
             <el-icon><Refresh /></el-icon>
           </div>
@@ -17,18 +17,17 @@
         </div>
       </div>
       <div class="video-container">
-        <div class="video-placeholder" v-if="!videoSrc">
+        <!-- WebRTC 播放器 -->
+        <WebRTCPlayer
+          v-if="webrtcUrl"
+          ref="webrtcPlayerRef"
+          :url="webrtcUrl"
+        />
+        <!-- 无视频流时显示黑屏 -->
+        <div v-else class="video-black-screen">
           <el-icon><VideoCamera /></el-icon>
-          <p>{{ t('noVideoFeed') }}</p>
+          <span>{{ t('noVideoFeed') }}</span>
         </div>
-        <video 
-          v-else 
-          class="video-player"
-          :src="videoSrc"
-          autoplay
-          muted
-          playsinline
-        ></video>
       </div>
       <div class="video-footer">
         <span class="status-indicator" :class="{ active: isConnected }">{{ isConnected ? t('connected') : t('disconnected') }}</span>
@@ -36,8 +35,8 @@
     </div>
 
     <!-- 最小化后的悬浮恢复按钮 -->
-    <div 
-      v-else 
+    <div
+      v-else
       class="video-restore-btn"
       @click="restore"
       :title="t('restoreVideoPanel')"
@@ -51,17 +50,19 @@
 </template>
 
 <script setup>
-import { computed, defineProps, defineEmits } from 'vue'
+import { computed, defineProps, defineEmits, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingStore } from '@/stores/setting'
 import { VideoCamera, FullScreen, Refresh, Minus } from '@element-plus/icons-vue'
 import { ElIcon } from 'element-plus'
+import WebRTCPlayer from './WebRTCPlayer.vue'
 
 const { t } = useI18n()
 const settingStore = useSettingStore()
+const webrtcPlayerRef = ref(null)
 
 const props = defineProps({
-  videoSrc: {
+  webrtcUrl: {
     type: String,
     default: ''
   },
@@ -102,6 +103,8 @@ function minimize() {
 function restore() {
   isMinimized.value = false
   emit('minimize-change', false)
+  // 恢复时触发推流请求
+  emit('refresh')
 }
 
 // 暴露方法给父组件
@@ -176,28 +179,30 @@ defineExpose({
   background-color: #000000;
 }
 
-.video-player {
+.video-container > * {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
 }
 
-.video-placeholder {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+.video-black-screen {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: #1a1a1a;
-  color: #666;
-  gap: 12px;
+  background-color: #000000;
+  color: #444;
+  gap: 8px;
+}
+
+.video-black-screen .el-icon {
+  font-size: 32px;
+}
+
+.video-black-screen span {
+  font-size: 12px;
 }
 
 .video-footer {
@@ -280,15 +285,15 @@ defineExpose({
   .video-display {
     max-width: 320px;
   }
-  
+
   .video-header {
     padding: 8px 12px;
   }
-  
+
   .video-header h3 {
     font-size: 12px;
   }
-  
+
   .control-icon {
     width: 24px;
     height: 24px;
@@ -310,14 +315,13 @@ defineExpose({
   .video-display {
     max-width: 240px;
   }
-  
-  .video-placeholder :deep(.ph-icon) {
-    width: 32px;
-    height: 32px;
+
+  .video-black-screen .el-icon {
+    font-size: 24px;
   }
-  
-  .video-placeholder p {
-    font-size: 12px;
+
+  .video-black-screen span {
+    font-size: 10px;
   }
 
   .video-restore-btn {

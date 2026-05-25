@@ -68,7 +68,7 @@ const defaultRobotControl = {
 
 // 视频面板默认设置
 const defaultVideoPanel = {
-  minimized: false
+  minimized: true  // 默认最小化，按需加载视频
 }
 
 export const useSettingStore = defineStore('setting', () => {

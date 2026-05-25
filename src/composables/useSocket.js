@@ -72,7 +72,39 @@ function useSocketInternal() {
       if (deviceId) {
         const deviceQueue = `/queue/device/${deviceId}`
         stompClient.subscribe(deviceQueue, (message) => {
-          console.log('[WebSocket] 收到后端消息:', { destination: deviceQueue, body: message.body })
+          try {
+            const parsedBody = JSON.parse(message.body)
+            // 递归解析嵌套的 JSON 字符串（如 rawData 字段）
+            const deepParse = (obj) => {
+              if (typeof obj === 'string') {
+                try {
+                  const parsed = JSON.parse(obj)
+                  return deepParse(parsed)
+                } catch {
+                  return obj
+                }
+              }
+              if (Array.isArray(obj)) {
+                return obj.map(deepParse)
+              }
+              if (obj && typeof obj === 'object') {
+                const result = {}
+                for (const [key, value] of Object.entries(obj)) {
+                  result[key] = deepParse(value)
+                }
+                return result
+              }
+              return obj
+            }
+            const fullyParsed = deepParse(parsedBody)
+            console.log('[WebSocket] 收到后端消息:')
+            console.log('  目标队列:', deviceQueue)
+            console.log('  消息内容:', JSON.stringify(fullyParsed, null, 2))
+          } catch (e) {
+            console.log('[WebSocket] 收到后端消息（非JSON）:')
+            console.log('  目标队列:', deviceQueue)
+            console.log('  原始内容:', message.body)
+          }
         })
       }
       
@@ -153,15 +185,13 @@ function useSocketInternal() {
     }
 
     const token = localStorage.getItem('token')
-    
-    // 如果 message 已经是完整的协议格式，直接发送
-    // 否则包装成旧格式（兼容）
-    const finalMessage = message.msg_cmd ? message : {
-      deviceId,
-      command: commandType,
-      parameters: message
+
+    const finalMessage = {
+      command: JSON.stringify(message),
+      deviceId: deviceId,
+      parameters: {}
     }
-    
+
     client.value.publish({
       destination: '/app/device/command',
       body: JSON.stringify(finalMessage),
