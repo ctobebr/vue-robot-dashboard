@@ -152,7 +152,7 @@ const lastSendTime = ref(0)
 const lastDirection = ref(/** @type {Direction} */({ x: 0, y: 0, strength: 0 }))
 const lastCommandTime = ref(Date.now())
 const heartbeatInterval = ref(null)
-const isAutoStopEnabled = ref(true)
+const isAutoStopEnabled = ref(false)
 const sendInterval = ref(null)
 
 const activeTouchId = ref(null)
@@ -452,6 +452,8 @@ function handleManagedTouchEnd(touch) {
  */
 function checkHeartbeat() {
   const now = Date.now()
+  // 只有在用户已经交互过（isAutoStopEnabled.value 为 true）且超时才发送 stop
+  // 避免页面加载后自动发送 stop 导致弹窗提示
   if (!isDragging.value && isAutoStopEnabled.value && now - lastCommandTime.value > config.safety.autoStopDelay) {
     direction.value = { x: 0, y: 0, strength: 0 }
     emit('stop')

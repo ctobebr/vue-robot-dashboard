@@ -639,6 +639,73 @@ watch(
   }
 )
 
+/**
+ * 重置 Viewer 状态
+ * 清空所有点云数据、足迹、位置等，模拟页面 reload 的效果
+ * 但保持 WebSocket 连接和设备连接
+ */
+function resetViewer() {
+  console.log('[Viewer] 开始重置...')
+
+  // 1. 清空点云数据数组
+  firstPoints = []
+  thirdPoints = []
+  console.log('[Viewer] 点云数据已清空')
+
+  // 2. 清空足迹数据
+  footprintPoints = [new THREE.Vector3(0, 0, 0)]
+  if (footprintLine) {
+    scene.remove(footprintLine)
+    footprintLine.geometry.dispose()
+    footprintLine.material.dispose()
+    footprintLine = null
+  }
+  console.log('[Viewer] 足迹数据已清空')
+
+  // 3. 清空位置标记
+  if (locationGroup) {
+    scene.remove(locationGroup)
+    locationGroup.traverse(child => {
+      if (child.geometry) child.geometry.dispose()
+      if (child.material) child.material.dispose()
+    })
+    locationGroup = null
+  }
+  console.log('[Viewer] 位置标记已清空')
+
+  // 4. 重置相机位置
+  camera.position.set(10, 10, 10)
+  camera.up.set(0, 0, 1)
+  controls.target.set(0, 0, 0)
+  controls.update()
+  hasSetCamera = false
+  console.log('[Viewer] 相机位置已重置')
+
+  // 5. 重置边界数据
+  minVertex.set(0, 0, 0)
+  maxVertex.set(0, 0, 0)
+  maxLong = 0
+  maxWidth = 0
+  maxHeight = 0
+  console.log('[Viewer] 边界数据已重置')
+
+  // 6. 重新创建空的点云场景
+  createPointCloud()
+  console.log('[Viewer] 点云场景已重建')
+
+  // 7. 重新创建坐标轴、刻度尺
+  createAxes()
+  createScaleplate()
+  console.log('[Viewer] 坐标轴和刻度尺已重建')
+
+  console.log('[Viewer] 重置完成')
+}
+
+// 暴露重置方法给父组件
+defineExpose({
+  resetViewer
+})
+
 onUnmounted(() => {
   cancelAnimationFrame(animationId)
   window.removeEventListener('resize', handleResize)

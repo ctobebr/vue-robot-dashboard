@@ -1,17 +1,12 @@
-
-// ### 1.3 设备状态管理修改
-
-// #### 修改原因：
-
-// - 适配后端重构后的设备状态数据格式
-// - 确保状态更新与后端API调用同步
-
-// #### 文件：`vue-3d-viewer/src/stores/device.js`
-
-
 import { defineStore } from 'pinia'
-import { ref, onUnmounted, watch } from 'vue'
+import { ref, onUnmounted, watch, nextTick } from 'vue'
 import { deviceAPI } from '../services/api'
+import {
+  getNextSessionId,
+  createRecordControlMessage,
+  createMappingControlMessage,
+  createWebSocketMessage
+} from '@/utils/protocol'
 
 let timer = null
 
@@ -38,7 +33,6 @@ export const useDeviceStore = defineStore('device', () => {
 
   function setCurrentDevice(deviceId) {
     currentDevice.value = deviceId
-    console.log('[DeviceStore] 当前设备已设置:', deviceId)
   }
 
   function setStatus(newStatus) {
@@ -47,7 +41,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   function setRecording(newRecording) {
     recording.value = newRecording
-    
+
     if (!newRecording) {
       recordingTime.value = 0
     }
@@ -75,32 +69,153 @@ export const useDeviceStore = defineStore('device', () => {
     localStorage.setItem('networks', JSON.stringify(newNetworks))
   }
 
-  // 开始录制
+  /**
+   * 检查是否可以发送命令
+   * @returns {boolean} 是否可以发送
+   */
+  function canSendCommand() {
+    if (!currentDevice.value) {
+      return false
+    }
+
+    const stompClient = window.__stompClient__
+    if (!stompClient || !stompClient.connected) {
+      return false
+    }
+
+    return true
+  }
+
+  /**
+   * 通过 WebSocket 发送设备控制命令
+   * @param {Object} message - 协议消息对象
+   * @returns {boolean} 是否发送成功
+   */
+  function sendDeviceCommand(message) {
+    if (!canSendCommand()) return false
+
+    const token = localStorage.getItem('token')
+    const stompClient = window.__stompClient__
+
+    const wsMessage = createWebSocketMessage(message, currentDevice.value)
+
+    stompClient.publish({
+      destination: '/app/device/command',
+      body: JSON.stringify(wsMessage),
+      headers: { Authorization: `Bearer ${token || ''}` }
+    })
+
+    return true
+  }
+
+  /**
+   * 发送录制控制命令
+   * @param {'start'|'end'|'reset'|string} control - 控制类型
+   * @param {number} [sessionId] - 可选的会话ID
+   * @returns {boolean} 是否发送成功
+   */
+  function sendRecordControl(control, sessionId) {
+    const message = createRecordControlMessage(control, sessionId ? { sessionId } : {})
+    return sendDeviceCommand(message)
+  }
+
+  /**
+   * 发送映射控制命令
+   * @param {'start'|'end'|'reset'} control - 控制类型
+   * @param {number} [sessionId] - 可选的会话ID
+   * @returns {boolean} 是否发送成功
+   */
+  function sendMappingControl(control, sessionId) {
+    const message = createMappingControlMessage(control, sessionId ? { sessionId } : {})
+    return sendDeviceCommand(message)
+  }
+
+  /**
+   * 开始录制 - 使用 WebSocket 发送两条命令
+   * 两条命令使用同一个 sessionId 以便后端关联
+   * @param {string} [dataName] - 录制数据名称
+   */
   async function startRecording(dataName) {
     try {
-      await deviceAPI.startRecording(sn.value, dataName)
-      recording.value = true
+      if (!canSendCommand()) {
+        throw new Error('设备未连接或WebSocket未连接')
+      }
+
+      const sessionId = getNextSessionId()
+      const recordControl = dataName || 'start'
+
+      const recordResult = sendRecordControl(recordControl, sessionId)
+      const mappingResult = sendMappingControl('start', sessionId)
+
+      if (recordResult && mappingResult) {
+        recording.value = true
+      } else {
+        throw new Error('WebSocket命令发送失败')
+      }
     } catch (err) {
-      console.error('Failed to start recording:', err)
+      throw err
     }
   }
 
-  // 停止录制
+  /**
+   * 停止录制 - 使用 WebSocket 发送两条命令
+   * 两条命令使用同一个 sessionId 以便后端关联
+   */
   async function stopRecording() {
     try {
-      await deviceAPI.stopRecording(sn.value)
-      recording.value = false
+      if (!canSendCommand()) {
+        throw new Error('设备未连接或WebSocket未连接')
+      }
+
+      const sessionId = getNextSessionId()
+
+      const recordResult = sendRecordControl('end', sessionId)
+      const mappingResult = sendMappingControl('end', sessionId)
+
+      if (recordResult && mappingResult) {
+        recording.value = false
+      } else {
+        throw new Error('WebSocket命令发送失败')
+      }
     } catch (err) {
-      console.error('Failed to stop recording:', err)
+      throw err
     }
   }
 
-  // 重置映射
+  /**
+   * 重置映射 - 重置当前建图并重新开始录制
+   * 等同于：停止当前录制 + 重置映射 + 重新开始录制
+   */
   async function resetMapping() {
     try {
-      await deviceAPI.resetMapping(sn.value)
+      if (!canSendCommand()) {
+        throw new Error('设备未连接或WebSocket未连接')
+      }
+
+      // 步骤1：发送 reset 命令重置映射
+      let sessionId = getNextSessionId()
+      const resetRecordResult = sendRecordControl('reset', sessionId)
+      const resetMappingResult = sendMappingControl('reset', sessionId)
+
+      if (!resetRecordResult || !resetMappingResult) {
+        throw new Error('重置命令发送失败')
+      }
+
+      // 步骤2：发送 start 命令重新开始录制
+      sessionId = getNextSessionId()
+      const startRecordResult = sendRecordControl('start', sessionId)
+      const startMappingResult = sendMappingControl('start', sessionId)
+
+      if (startRecordResult && startMappingResult) {
+        // 先停止录制重置计时器，再重新开始录制
+        recording.value = false
+        await nextTick()
+        recording.value = true
+      } else {
+        throw new Error('启动录制命令发送失败')
+      }
     } catch (err) {
-      console.error('Failed to reset mapping:', err)
+      throw err
     }
   }
 

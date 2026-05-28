@@ -142,5 +142,8 @@
     "disconnected": "Disconnected",
     "disconnect": "Disconnect",
     "deviceDisconnected": "Device disconnected",
-    "fullscreen": "Fullscreen"
+    "fullscreen": "Fullscreen",
+    "error": "Error",
+    "deviceNotConnected": "Please connect device first",
+    "websocketNotConnected": "WebSocket not connected, please check network"
 }

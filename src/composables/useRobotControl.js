@@ -1,6 +1,7 @@
 import { ref, onUnmounted } from 'vue'
 import { useSocket } from './useSocket'
 import { useDeviceStore } from '@/stores/device'
+import { createSportControlMessage, createWebSocketMessage } from '@/utils/protocol'
 
 /**
  * @typedef {Object} Direction
@@ -17,34 +18,50 @@ import { useDeviceStore } from '@/stores/device'
  */
 
 /**
- * @typedef {Object} RobotMessage
- * @property {string} type 消息类型
- * @property {Object} data 消息数据
- * @property {number} timestamp 时间戳
+ * 打印运动控制消息体（用于调试）
+ * @param {string} title - 标题
+ * @param {Object} wsMessage - WebSocket消息对象
+ * @param {Object} extraInfo - 额外信息（摇杆数据等）
  */
-
-// 会话ID，自增
-let sessionId = 1
-
-/**
- * 获取当前时间戳（毫秒）
- * @returns {number}
- */
-function getTimestamp() {
-  return Date.now()
+function logSportMessage(title, wsMessage, extraInfo = {}) {
+  console.log(`\n${'='.repeat(60)}`)
+  console.log(`🎮 ${title}`)
+  console.log(`${'='.repeat(60)}`)
+  
+  if (extraInfo.side) {
+    console.log(`🕹️ 触发摇杆: ${extraInfo.side === 'left' ? '左摇杆' : '右摇杆'}`)
+  }
+  if (extraInfo.leftState) {
+    console.log(`📍 左摇杆状态: x=${extraInfo.leftState.x.toFixed(3)}, y=${extraInfo.leftState.y.toFixed(3)}, strength=${extraInfo.leftState.strength.toFixed(3)}`)
+  }
+  if (extraInfo.rightState) {
+    console.log(`📍 右摇杆状态: x=${extraInfo.rightState.x.toFixed(3)}, y=${extraInfo.rightState.y.toFixed(3)}, strength=${extraInfo.rightState.strength.toFixed(3)}`)
+  }
+  
+  console.log('\n📋 完整消息体:')
+  console.log(JSON.stringify(wsMessage, null, 2))
+  console.log('\n📊 消息字段解析:')
+  console.log(`   • deviceId: ${wsMessage.deviceId}`)
+  console.log(`   • parameters: ${JSON.stringify(wsMessage.parameters)}`)
+  console.log(`   • command (已序列化):`)
+  
+  const command = JSON.parse(wsMessage.command)
+  console.log(`      - session_id: ${command.session_id}`)
+  console.log(`      - protocol_version: ${command.protocol_version}`)
+  console.log(`      - timestamp: ${command.timestamp} (${new Date(command.timestamp).toLocaleString()})`)
+  console.log(`      - msg_type: ${command.msg_type}`)
+  console.log(`      - msg_cmd: ${command.msg_cmd} (运动控制)`)
+  console.log(`      - data:`)
+  console.log(`         • cmd_velx: ${command.data.cmd_velx} (前进/后退速度)`)
+  console.log(`         • cmd_vely: ${command.data.cmd_vely} (左移/右移速度)`)
+  console.log(`         • cmd_yaw: ${command.data.cmd_yaw} (旋转速度)`)
+  console.log(`${'='.repeat(60)}\n`)
 }
 
 /**
  * 机器人控制组合式函数
  * 提供摇杆控制机器人的核心功能，包括移动指令发送、停止指令发送和连接状态管理
  * @returns {Object} 包含控制方法和状态的对象
- * @property {ref<boolean>} isConnected 连接状态
- * @property {ref<JoystickCallbacks>} leftJoystick 左摇杆回调
- * @property {ref<JoystickCallbacks>} rightJoystick 右摇杆回调
- * @property {Function} sendMove 发送移动指令
- * @property {Function} sendStop 发送停止指令
- * @property {Function} connect 建立连接
- * @property {Function} disconnect 断开连接
  */
 export function useRobotControl() {
   const { connected, sendCommand } = useSocket()
@@ -65,6 +82,27 @@ export function useRobotControl() {
   }
 
   /**
+   * 检查是否可以发送命令
+   * 只在控制台输出警告，不弹窗打扰用户
+   * @returns {boolean} 是否可以发送
+   */
+  function canSendCommand() {
+    // 检查设备是否已连接
+    if (!deviceStore.currentDevice) {
+      console.warn('[RobotControl] 未选择设备，无法发送指令')
+      return false
+    }
+
+    // 检查 WebSocket 是否已连接
+    if (!connected.value) {
+      console.warn('[RobotControl] WebSocket未连接，无法发送指令')
+      return false
+    }
+
+    return true
+  }
+
+  /**
    * 发送机器人移动指令
    * 按照 doc.md 中的行走控制格式发送消息
    *
@@ -81,15 +119,7 @@ export function useRobotControl() {
    * @returns {void}
    */
   function sendMove(direction, side = 'left') {
-    if (!connected.value) {
-      console.warn('[RobotControl] WebSocket未连接，无法发送移动指令')
-      return
-    }
-
-    if (!deviceStore.currentDevice) {
-      console.warn('[RobotControl] 未选择设备，无法发送移动指令')
-      return
-    }
+    if (!canSendCommand()) return
 
     if (side === 'left') {
       leftState.value = { ...direction }
@@ -104,37 +134,15 @@ export function useRobotControl() {
     const cmdVelY = clamp(-left.x * 100, -100, 100)
     const cmdYaw = clamp(right.x * 100, -100, 100)
 
-    const message = {
-      session_id: sessionId++,
-      protocol_version: "v1.0.0",
-      timestamp: getTimestamp(),
-      msg_type: 0,
-      msg_cmd: 3006,
-      data: {
-        cmd_velx: parseFloat(cmdVelX.toFixed(1)),
-        cmd_vely: parseFloat(cmdVelY.toFixed(1)),
-        cmd_yaw: parseFloat(cmdYaw.toFixed(1))
-      }
-    }
+    // 使用 protocol.js 创建消息
+    const message = createSportControlMessage(cmdVelX, cmdVelY, cmdYaw)
+    const wsMessage = createWebSocketMessage(message, deviceStore.currentDevice)
 
-    console.log('===== [RobotControl] 发送行走控制命令 =====')
-    console.log('设备ID:', deviceStore.currentDevice)
-    console.log('触发摇杆:', side === 'left' ? '左摇杆' : '右摇杆')
-    console.log('左摇杆原始数据:', { x: left.x, y: left.y, strength: left.strength })
-    console.log('右摇杆原始数据:', { x: right.x, y: right.y, strength: right.strength })
-    console.log('转换后速度值:', {
-      cmd_velx: message.data.cmd_velx,
-      cmd_vely: message.data.cmd_vely,
-      cmd_yaw: message.data.cmd_yaw
+    logSportMessage('运动控制命令 [移动]', wsMessage, {
+      side,
+      leftState: left,
+      rightState: right
     })
-    //console.log('完整消息体:', JSON.stringify(message, null, 2))
-    console.log('发送包裹格式:', JSON.stringify({
-      command: message,
-      deviceId: deviceStore.currentDevice,
-      parameters: {}
-    }, null, 2))
-    console.log('目标地址:', '/app/device/command')
-    console.log('=========================================')
 
     sendCommand(deviceStore.currentDevice, 'robot:move', message)
   }
@@ -147,15 +155,7 @@ export function useRobotControl() {
    * @returns {void}
    */
   function sendStop(side = 'all') {
-    if (!connected.value) {
-      console.warn('[RobotControl] WebSocket未连接，无法发送停止指令')
-      return
-    }
-
-    if (!deviceStore.currentDevice) {
-      console.warn('[RobotControl] 未选择设备，无法发送停止指令')
-      return
-    }
+    if (!canSendCommand()) return
 
     const now = Date.now()
     if (side === lastStopSide.value && now - lastStopTime.value < 200) {
@@ -178,35 +178,14 @@ export function useRobotControl() {
     const cmdVelY = clamp(-left.x * 100, -100, 100)
     const cmdYaw = clamp(right.x * 100, -100, 100)
 
-    const message = {
-      session_id: sessionId++,
-      protocol_version: "v1.0.0",
-      timestamp: getTimestamp(),
-      msg_type: 0,
-      msg_cmd: 3006,
-      data: {
-        cmd_velx: parseFloat(cmdVelX.toFixed(1)),
-        cmd_vely: parseFloat(cmdVelY.toFixed(1)),
-        cmd_yaw: parseFloat(cmdYaw.toFixed(1))
-      }
-    }
+    // 使用 protocol.js 创建消息
+    const message = createSportControlMessage(cmdVelX, cmdVelY, cmdYaw)
+    const wsMessage = createWebSocketMessage(message, deviceStore.currentDevice)
 
-    console.log('===== [RobotControl] 发送停止命令 =====')
-    console.log('设备ID:', deviceStore.currentDevice)
-    console.log('停止侧边:', side === 'all' ? '全部' : (side === 'left' ? '左摇杆' : '右摇杆'))
-    console.log('当前左摇杆状态:', { x: left.x, y: left.y, strength: left.strength })
-    console.log('当前右摇杆状态:', { x: right.x, y: right.y, strength: right.strength })
-    console.log('转换后速度值:', {
-      cmd_velx: message.data.cmd_velx,
-      cmd_vely: message.data.cmd_vely,
-      cmd_yaw: message.data.cmd_yaw
+    logSportMessage(`运动控制命令 [停止 - ${side === 'all' ? '全部' : (side === 'left' ? '左摇杆' : '右摇杆')}]`, wsMessage, {
+      leftState: left,
+      rightState: right
     })
-    console.log('发送包裹格式:', JSON.stringify({
-      command: JSON.stringify(message),
-      deviceId: deviceStore.currentDevice,
-      parameters: {}
-    }, null, 2))
-    console.log('=========================================')
 
     sendCommand(deviceStore.currentDevice, 'robot:stop', message)
   }

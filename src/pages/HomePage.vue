@@ -8,9 +8,10 @@
       @update:openDataListModal="handleOpenDataListModal"
       @update:openAuthModal="handleOpenAuthModal"
     />
-    <Header 
+    <Header
       :openSidebar="openSidebar"
       :videoVisible="videoVisible"
+      :viewerRef="viewerRef"
       @toggle-sidebar="handleToggleSidebar"
       @video-visible-change="handleVideoVisibleChange"
       @toggle-joystick-state="handleJoystickStateChange"
@@ -19,7 +20,7 @@
     <CommonSettings :opened="openCommonSettings" @close="openCommonSettings = false" />
     <DataListModal :opened="openDataListModal" @close="openDataListModal = false" />
     <AuthModal :opened="openAuthModal" @close="openAuthModal = false" />
-    <Viewer />
+    <Viewer ref="viewerRef" />
     
     <!-- 视频显示区域 -->
     <div class="control-panel video-panel" v-if="videoVisible">
@@ -99,6 +100,9 @@ const joysticksVisible = ref(true) // 控制摇杆容器显示
 
 // 视频相关状态
 const webrtcUrl = ref('')
+
+// Viewer 组件引用
+const viewerRef = ref(null)
 
 // 初始化 composables
 const { sendMove, sendStop, connect: connectRobot } = useRobotControl()

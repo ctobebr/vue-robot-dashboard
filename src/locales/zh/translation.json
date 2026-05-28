@@ -142,5 +142,8 @@
     "disconnected": "未连接",
     "disconnect": "断开连接",
     "deviceDisconnected": "设备已断开连接",
-    "fullscreen": "全屏"
+    "fullscreen": "全屏",
+    "error": "错误",
+    "deviceNotConnected": "请先连接设备",
+    "websocketNotConnected": "WebSocket未连接，请检查网络"
 }

@@ -236,7 +236,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDeviceStore } from '@/stores/device'
 import { useSocket } from '@/composables/useSocket'
-import { ElNotification } from 'element-plus'
+import { ElNotification, ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 import { deviceAPI } from '@/services/api'
@@ -245,8 +245,9 @@ import IpInput from '@/components/Input/IpInput.vue'
 
 dayjs.extend(duration)
 
-defineProps({
-  openSidebar: Boolean
+const props = defineProps({
+  openSidebar: Boolean,
+  viewerRef: Object
 })
 const emit = defineEmits(['toggle-sidebar', 'video-visible-change', 'toggle-joystick-state'])
 
@@ -314,6 +315,11 @@ function handleToggleLanguage() {
 }
 
 function handleRecordingClick() {
+  if (!deviceStore.currentDevice) {
+    ElMessage.warning('请先连接设备后再开始录制')
+    console.warn('[Header] 未连接设备，无法开始录制')
+    return
+  }
   if (recording.value) {
     handleStopRecording()
   } else {
@@ -340,6 +346,11 @@ async function handleStopRecording() {
 }
 
 function handleOpenResetMappingModal() {
+  if (!deviceStore.currentDevice) {
+    ElMessage.warning('请先连接设备后再重置建图')
+    console.warn('[Header] 未连接设备，无法重置建图')
+    return
+  }
   resetMappingDialogVisible.value = true
 }
 
@@ -366,23 +377,27 @@ function handleToggleVideo() {
 }
 
 async function handleConfirmRecording() {
-  const finalDataName = dataName.value ? `${defaultDataName}_${dataName.value}` : defaultDataName
+  const finalDataName = dataName.value && dataName.value !== defaultDataName
+    ? `${defaultDataName}_${dataName.value}`
+    : defaultDataName
   try {
-    const response = await deviceAPI.getDataDetails()
-    const data = response.data.data
-    const repetitiveName = data.every((item) => item.name !== finalDataName)
-
-    if (!repetitiveName) {
-      ElNotification({
-        title: t('dataPacketNameDuplicate'),
-        message: t('dataPacketNameDuplicateMessage'),
-        type: 'error',
-        duration: 5000
-      })
-    } else {
-      await deviceStore.startRecording(finalDataName)
+          await deviceStore.startRecording(finalDataName)
       recordingDialogVisible.value = false
-    }
+    // const response = await deviceAPI.getDataDetails()
+    // const data = response.data.data
+    // const repetitiveName = data.every((item) => item.name !== finalDataName)
+
+    // if (!repetitiveName) {
+    //   ElNotification({
+    //     title: t('dataPacketNameDuplicate'),
+    //     message: t('dataPacketNameDuplicateMessage'),
+    //     type: 'error',
+    //     duration: 5000
+    //   })
+    // } else {
+    //   await deviceStore.startRecording(finalDataName)
+    //   recordingDialogVisible.value = false
+    // }
   } catch (error) {
     ElNotification({
       title: t('error'),
@@ -397,7 +412,11 @@ async function handleConfirmResetMapping() {
   try {
     await deviceStore.resetMapping()
     resetMappingDialogVisible.value = false
-    window.location.reload()
+
+    // 调用 Viewer 的重置方法，清空点云数据（替代 reload）
+    if (props.viewerRef && props.viewerRef.resetViewer) {
+      props.viewerRef.resetViewer()
+    }
   } catch (error) {
     ElNotification({
       title: t('error'),

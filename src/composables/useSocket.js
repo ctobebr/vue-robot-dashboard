@@ -6,14 +6,15 @@ import SockJS from 'sockjs-client'
 
 const SocketKey = Symbol('socket')
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://172.30.14.57:8080'
+// 从环境变量读取WebSocket服务器地址
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://172.30.1.132:8080'
 
 function parseSocketUrl(url) {
   try {
     const urlObj = new URL(url)
     return { host: urlObj.hostname, port: urlObj.port || '8080' }
   } catch (e) {
-    return { host: '172.30.14.57', port: '8080' }
+    return { host: '172.30.1.132', port: '8080' }
   }
 }
 
@@ -62,6 +63,9 @@ function useSocketInternal() {
     clientConfig.webSocketFactory = createSockJSFactory(sockjsBaseUrl)
 
     const stompClient = new Client(clientConfig)
+
+    // 将 stompClient 暴露到全局，供 device store 使用
+    window.__stompClient__ = stompClient
 
     stompClient.onConnect = () => {
       log('连接已建立', { deviceId })

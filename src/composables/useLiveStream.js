@@ -1,8 +1,12 @@
 import { ref, onUnmounted } from 'vue'
 
+// 从环境变量读取服务器配置
+const SERVER_IP = import.meta.env.VITE_SERVER_IP || '172.30.1.132'
+const STREAM_PORT = import.meta.env.VITE_STREAM_PORT || '10800'
+
 // 开发环境使用代理路径，生产环境使用实际地址
 const isDev = import.meta.env.DEV
-const STREAM_API_BASE = isDev ? '/live-api' : `http://${import.meta.env.VITE_STREAM_SERVER_HOST || '172.30.14.57'}:10800/api`
+const STREAM_API_BASE = isDev ? '/live-api' : `http://${SERVER_IP}:${STREAM_PORT}/api`
 
 /**
  * 直播流管理组合式函数
