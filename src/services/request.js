@@ -1,8 +1,12 @@
 import axios from 'axios'
 
+// 获取环境变量
+const isDev = import.meta.env.DEV
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+
 // 创建axios实例
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:8000/api`,
+  baseURL: apiBaseUrl,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -17,6 +21,12 @@ request.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    
+    // 开发环境打印请求信息
+    if (isDev) {
+      console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`, config.data || '')
+    }
+    
     return config
   },
   (error) => {
@@ -27,6 +37,10 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
   (response) => {
+    // 开发环境打印响应信息
+    if (isDev) {
+      console.log(`[API Response] ${response.config.url}`, response.data)
+    }
     return response
   },
   (error) => {
@@ -39,6 +53,12 @@ request.interceptors.response.use(
       //   authStore.logout()
       // })
     }
+    
+    // 开发环境打印错误信息
+    if (isDev) {
+      console.error(`[API Error] ${error.config?.url}`, error.response?.status, error.response?.data)
+    }
+    
     return Promise.reject(error)
   }
 )

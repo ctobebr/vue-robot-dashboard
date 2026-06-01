@@ -3,6 +3,7 @@
 import { Client } from '@stomp/stompjs'
 import { ref, onUnmounted, provide, inject } from 'vue'
 import SockJS from 'sockjs-client'
+import { useDeviceStore } from '@/stores/device'
 
 const SocketKey = Symbol('socket')
 
@@ -33,6 +34,54 @@ function useSocketInternal() {
       console.log(`[WebSocket] ${message}`, data)
     } else {
       console.log(`[WebSocket] ${message}`)
+    }
+  }
+
+  // 设备状态消息回调函数（由外部设置）
+  let deviceStatusCallback = null
+  
+  /**
+   * 设置设备状态消息处理回调
+   * @param {Function} callback - 回调函数
+   */
+  function setDeviceStatusCallback(callback) {
+    deviceStatusCallback = callback
+  }
+  
+  /**
+   * 处理设备状态消息
+   * @param {Object} message - 解析后的消息对象
+   */
+  function handleDeviceStatusMessage(message) {
+    try {
+      // 解析嵌套的数据结构
+      // 消息格式: { deviceId, message: { rawData: { data: { cpu_usage, memory_usage, disk_usage } } } }
+      let deviceData = null
+      
+      if (message.message?.rawData?.data) {
+        // 新格式: 数据在 message.rawData.data 中
+        deviceData = message.message.rawData.data
+      } else if (message.data) {
+        // 旧格式: 数据直接在 data 中
+        deviceData = message.data
+      } else {
+        // 尝试直接使用 message
+        deviceData = message
+      }
+      
+      if (!deviceData || typeof deviceData !== 'object') {
+        console.log('[WebSocket] 未找到有效的设备状态数据')
+        return
+      }
+      
+      console.log('[WebSocket] 解析到设备状态数据:', deviceData)
+      
+      // 如果有外部回调，调用它（让 Vue 组件处理 store 更新）
+      if (deviceStatusCallback) {
+        deviceStatusCallback(deviceData)
+      }
+    } catch (error) {
+      console.error('[WebSocket] 处理设备状态消息失败:', error)
     }
   }
 
@@ -104,6 +153,9 @@ function useSocketInternal() {
             console.log('[WebSocket] 收到后端消息:')
             console.log('  目标队列:', deviceQueue)
             console.log('  消息内容:', JSON.stringify(fullyParsed, null, 2))
+            
+            // 处理设备状态数据，更新到全局 store
+            handleDeviceStatusMessage(fullyParsed)
           } catch (e) {
             console.log('[WebSocket] 收到后端消息（非JSON）:')
             console.log('  目标队列:', deviceQueue)
@@ -248,7 +300,8 @@ function useSocketInternal() {
     unsubscribe,
     unsubscribeAll,
     sendCommand,
-    disconnect
+    disconnect,
+    setDeviceStatusCallback
   }
 }
 

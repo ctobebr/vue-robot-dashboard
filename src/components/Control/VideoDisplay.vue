@@ -230,7 +230,7 @@ defineExpose({
 /* 最小化后的悬浮恢复按钮 */
 .video-restore-btn {
   position: fixed;
-  top: 60px;
+  top: 100px;
   left: 20px;
   width: 48px;
   height: 48px;
@@ -302,7 +302,7 @@ defineExpose({
   .video-restore-btn {
     width: 40px;
     height: 40px;
-    top: 100px;
+    top: 140px;
     left: 12px;
   }
 
@@ -327,7 +327,7 @@ defineExpose({
   .video-restore-btn {
     width: 36px;
     height: 36px;
-    top: 100px;
+    top: 140px;
     left: 8px;
   }
 
@@ -340,7 +340,7 @@ defineExpose({
   .video-restore-btn {
     width: 56px;
     height: 56px;
-    top: 120px;
+    top: 160px;
     left: 24px;
   }
 

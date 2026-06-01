@@ -15,9 +15,9 @@
               </div>
               <div
                 class="status-icon-container"
-                :class="{ 'rotating': status === 'mapping' }"
+                :class="{ 'rotating': status === 'working' }"
               >
-                <PhTarget size="18" :color="status === 'mapping' ? '#10b981' : '#6b7280'" />
+                <PhTarget size="18" :color="getMappingStatusColor(status)" />
               </div>
               <div
                 class="status-icon-container"
@@ -34,14 +34,14 @@
             <span>{{ t('networkStatus') }}</span>
             <span
               class="status-dot"
-              :style="{ backgroundColor: status !== 'offline' ? '#10b981' : '#6b7280' }"
+              :style="{ backgroundColor: connected ? '#10b981' : '#6b7280' }"
             />
           </div>
           <div class="status-item">
             <span>{{ t('mappingStatus') }}</span>
             <span
               class="status-dot"
-              :style="{ backgroundColor: status === 'mapping' ? '#10b981' : '#6b7280' }"
+              :style="{ backgroundColor: getMappingStatusColor(status) }"
             />
           </div>
           <div class="status-item">
@@ -51,10 +51,10 @@
               :style="{ backgroundColor: recording ? '#10b981' : '#6b7280' }"
             />
           </div>
-          <div v-if="connected && currentDeviceId" class="status-item disconnect-item" @click="handleDisconnect">
+          <!-- <div v-if="connected && currentDeviceId" class="status-item disconnect-item" @click="handleDisconnect">
             <span>{{ t('disconnect') }}</span>
             <PhPower size="16" color="#e74c3c" />
-          </div>
+          </div> -->
         </div>
       </el-popover>
     </div>
@@ -253,7 +253,7 @@ const emit = defineEmits(['toggle-sidebar', 'video-visible-change', 'toggle-joys
 
 const { t, locale } = useI18n()
 const deviceStore = useDeviceStore()
-const { client, connected, currentDeviceId, initSocket, subscribe, unsubscribe, disconnect } = useSocket()
+const { client, connected, currentDeviceId, initSocket, subscribe, unsubscribe, disconnect, setDeviceStatusCallback } = useSocket()
 
 const recordingDialogVisible = ref(false)
 const resetMappingDialogVisible = ref(false)
@@ -285,19 +285,33 @@ const networks = computed(() => deviceStore.networks)
 const defaultDataName = dayjs().format('YYYYMMDDHHmmss')
 
 const netColor = computed(() => {
-  if (status.value !== 'offline') {
+  // 网络状态：WebSocket 连接成功为绿色，断开为灰色
+  if (connected.value) {
     return '#10b981'
   }
   return '#6b7280'
 })
 
 function getUsageColor(value) {
-  if (value < 50) {
-    return '#22c55e'
-  } else if (value < 75) {
-    return '#eab308'
-  } else {
-    return '#ef4444'
+  // CPU/内存/硬盘圆环颜色：统一使用绿色，0为无状态（灰色），100为满圈绿色
+  if (value === 0) {
+    return '#6b7280' // 灰色 - 无状态
+  }
+  return '#22c55e' // 绿色 - 有数值
+}
+
+function getMappingStatusColor(status) {
+  // 建图状态颜色：idle-灰色, working-绿色, success-绿色, fail-红色
+  switch (status) {
+    case 'working':
+      return '#10b981' // 绿色
+    case 'success':
+      return '#10b981' // 绿色
+    case 'fail':
+      return '#ef4444' // 红色
+    case 'idle':
+    default:
+      return '#6b7280' // 灰色
   }
 }
 
@@ -515,7 +529,40 @@ async function handleConfirmChangeIp() {
 let ipChangeSub = null
 let hasSubscribedHeader = false
 
+// 处理设备状态消息回调
+function handleDeviceStatus(data) {
+  console.log('[Header] 收到设备状态数据:', data)
+  
+  // 更新建图状态 (mapping_status: Idle/working/fail/success)
+  if (data.mapping_status !== undefined) {
+    const mappingStatus = data.mapping_status.toLowerCase()
+    deviceStore.setStatus(mappingStatus)
+    console.log('[Header] 建图状态更新为:', mappingStatus)
+  }
+  
+  // 更新录制状态 (recording_status: working/idle)
+  if (data.recording_status !== undefined) {
+    const isRecording = data.recording_status.toLowerCase() === 'working'
+    deviceStore.setRecording(isRecording)
+    console.log('[Header] 录制状态更新为:', isRecording)
+  }
+  
+  // 更新 CPU/内存/硬盘使用率
+  if (data.cpu_usage !== undefined || data.memory_usage !== undefined || data.disk_usage !== undefined) {
+    const newUsage = {
+      cpu: data.cpu_usage ?? deviceStore.usage.cpu,
+      memory: data.memory_usage ?? deviceStore.usage.memory,
+      disk: data.disk_usage ?? deviceStore.usage.disk
+    }
+    deviceStore.setUsage(newUsage)
+    console.log('[Header] 使用率更新为:', newUsage)
+  }
+}
+
 onMounted(() => {
+  // 设置设备状态消息处理回调
+  setDeviceStatusCallback(handleDeviceStatus)
+  
   if (deviceStore.currentDevice) {
     initSocket(deviceStore.currentDevice)
   }
