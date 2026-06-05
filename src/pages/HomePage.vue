@@ -72,6 +72,7 @@ import { useMediaControl } from '@/composables/useMediaControl'
 import { useVideoStream } from '@/composables/useVideoStream'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { useDeviceStore } from '@/stores/device'
+import { useSettingStore } from '@/stores/setting'
 import { ElMessage } from 'element-plus'
 import Toolbar from '@/components/Toolbar/Toolbar.vue'
 import Header from '@/components/Header/Header.vue'
@@ -99,9 +100,6 @@ const joysticksVisible = ref(true) // 控制摇杆容器显示
 // 视频相关状态
 const webrtcUrl = ref('')
 
-// 初始化时，确保视频流为空（需要等待用户开启实时影像后才获取）
-webrtcUrl.value = ''
-
 // Viewer 组件引用
 const viewerRef = ref(null)
 
@@ -110,6 +108,10 @@ const { sendMove, sendStop, connect: connectRobot } = useRobotControl()
 const { isRecording, capture, startRecord, stopRecord, setRecordingState } = useMediaControl()
 const { getWebRTCUrlByDeviceId, disconnect: disconnectLiveStream } = useLiveStream()
 const deviceStore = useDeviceStore()
+const settingStore = useSettingStore()
+
+// 从缓存中恢复机器人控制设置
+videoVisible.value = settingStore.robotControl.sensorsEnabled
 
 // 摇杆显示状态切换处理
 function handleJoystickStateChange(state) {
@@ -252,7 +254,10 @@ function handleVideoVisibleChange(visible) {
 onMounted(() => {
   // 连接机器人控制
   connectRobot()
-  // 注意：直播流不再自动连接，用户点击视频面板恢复按钮时手动触发
+  // 如果缓存中实时影像为展示状态，自动获取直播流
+  if (videoVisible.value && deviceStore.currentDevice) {
+    handleVideoRefresh()
+  }
 })
 </script>
 

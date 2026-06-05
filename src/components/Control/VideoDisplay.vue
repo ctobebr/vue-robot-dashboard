@@ -1,7 +1,11 @@
 <template>
   <div class="video-wrapper">
     <!-- 视频面板 -->
-    <div class="video-display" v-if="!isMinimized">
+    <div
+      class="video-display"
+      v-if="!isMinimized"
+      :style="{ width: panelWidth + 'px' }"
+    >
       <div class="video-header">
         <h3>{{ t('videoPanel') }}</h3>
         <div class="video-controls">
@@ -32,6 +36,12 @@
       <div class="video-footer">
         <span class="status-indicator" :class="{ active: isConnected }">{{ isConnected ? t('connected') : t('disconnected') }}</span>
       </div>
+      <!-- 拖拽调整尺寸手柄 -->
+      <div class="resize-handle" @mousedown="startResize">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <path d="M0 0 L12 12 M4 0 L12 8 M8 0 L12 4" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+        </svg>
+      </div>
     </div>
 
     <!-- 最小化后的悬浮恢复按钮 -->
@@ -50,7 +60,7 @@
 </template>
 
 <script setup>
-import { computed, defineProps, defineEmits, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingStore } from '@/stores/setting'
 import { VideoCamera, FullScreen, Refresh, Minus } from '@element-plus/icons-vue'
@@ -107,6 +117,57 @@ function restore() {
   emit('refresh')
 }
 
+// ========== 拖拽调整面板尺寸 ==========
+const MIN_PANEL_WIDTH = 280
+const MAX_PANEL_WIDTH = 800
+const DEFAULT_PANEL_WIDTH = 480
+
+const panelWidth = ref(DEFAULT_PANEL_WIDTH)
+const isResizing = ref(false)
+
+function startResize(e) {
+  e.preventDefault()
+  isResizing.value = true
+  document.addEventListener('mousemove', onResize)
+  document.addEventListener('mouseup', stopResize)
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'nwse-resize'
+}
+
+function onResize(e) {
+  if (!isResizing.value) return
+  // 面板在屏幕左侧，宽度 = 鼠标X坐标 - 面板左边距
+  const newWidth = e.clientX - 20 // 20px 为左边距
+  panelWidth.value = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, newWidth))
+}
+
+function stopResize() {
+  isResizing.value = false
+  document.removeEventListener('mousemove', onResize)
+  document.removeEventListener('mouseup', stopResize)
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+}
+
+// 响应式调整
+function handleWindowResize() {
+  if (panelWidth.value > window.innerWidth - 40) {
+    panelWidth.value = Math.max(MIN_PANEL_WIDTH, window.innerWidth - 40)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleWindowResize)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onResize)
+  document.removeEventListener('mouseup', stopResize)
+  window.removeEventListener('resize', handleWindowResize)
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+})
+
 // 暴露方法给父组件
 defineExpose({
   minimize,
@@ -127,8 +188,7 @@ defineExpose({
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 100;
-  max-width: 480px;
-  width: 100%;
+  position: relative;
   user-select: none;
 }
 
@@ -282,10 +342,6 @@ defineExpose({
 
 /* 响应式设计 */
 @media screen and (max-width: 768px) {
-  .video-display {
-    max-width: 320px;
-  }
-
   .video-header {
     padding: 8px 12px;
   }
@@ -312,10 +368,6 @@ defineExpose({
 }
 
 @media screen and (max-width: 480px) {
-  .video-display {
-    max-width: 240px;
-  }
-
   .video-black-screen .el-icon {
     font-size: 24px;
   }
@@ -347,5 +399,26 @@ defineExpose({
   .restore-icon {
     font-size: 24px;
   }
+}
+
+/* 拖拽调整尺寸手柄 */
+.resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 2px 2px 0;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.video-display:hover .resize-handle {
+  opacity: 1;
 }
 </style>

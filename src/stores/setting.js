@@ -113,7 +113,7 @@ export const useSettingStore = defineStore('setting', () => {
 
   function loadFromStorage() {
     try {
-      const stored = sessionStorage.getItem(STORAGE_KEY)
+      const stored = localStorage.getItem(STORAGE_KEY)
       if (stored) {
         const parsed = JSON.parse(stored)
         if (parsed.appearance) appearance.value = parsed.appearance
@@ -136,7 +136,7 @@ export const useSettingStore = defineStore('setting', () => {
         robotControl: robotControl.value,
         videoPanel: videoPanel.value
       }
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     } catch (e) {
       console.error('Failed to save settings from storage:', e)
     }
