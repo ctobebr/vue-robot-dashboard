@@ -91,7 +91,7 @@
     "clippingType": "裁剪类型",
     "inside": "内部",
     "outside": "外部",
-    "robotControl": "机器人控制",
+    "robotControl": "机器狗控制",
     "dogPose": "机器狗姿态",
     "realTimeImage": "实时影像",
     "show": "展示",
@@ -145,5 +145,13 @@
     "fullscreen": "全屏",
     "error": "错误",
     "deviceNotConnected": "请先连接设备",
-    "websocketNotConnected": "WebSocket未连接，请检查网络"
+    "websocketNotConnected": "WebSocket未连接，请检查网络",
+    "pleaseSelectDevice": "请先选择设备",
+    "warning": "警告",
+    "success": "成功",
+    "pointDensitySetSuccess": "点云密度已设置为{density}",
+    "pointDensitySetFailed": "点云密度设置失败",
+    "imageTransmitEnabled": "实时影像已开启",
+    "imageTransmitDisabled": "实时影像已关闭",
+    "imageTransmitSetFailed": "实时影像设置失败"
 }

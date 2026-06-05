@@ -30,7 +30,14 @@ const deviceAPI = {
 
   // 设置网络
   setNetworks: (deviceSN, networks) =>
-    request.post(`/devices/${deviceSN}/set_networks`, { networks }),
+    request.post(`/${deviceSN}/set_networks`, { networks }),
+
+  // 获取点云数据（Lidar帧数据）- 返回二进制Draco压缩数据
+  getFrameData: (sensorName = 'Lidar') =>
+    request.get('/data/getFrameData', {
+      params: { sensorName },
+      responseType: 'arraybuffer'  // 接收二进制数据
+    }),
 }
 
 export default deviceAPI

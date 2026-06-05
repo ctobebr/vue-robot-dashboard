@@ -9,6 +9,7 @@ const SocketKey = Symbol('socket')
 
 // 从环境变量读取WebSocket服务器地址
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://172.30.1.132:8080'
+const isDev = import.meta.env.DEV
 
 function parseSocketUrl(url) {
   try {
@@ -21,6 +22,9 @@ function parseSocketUrl(url) {
 
 const { host: WS_SERVER_HOST, port: WS_SERVER_PORT } = parseSocketUrl(SOCKET_URL)
 
+// 开发环境使用相对路径走 Vite 代理，生产环境使用完整 URL
+const WS_BASE_URL = isDev ? '' : `http://${WS_SERVER_HOST}:${WS_SERVER_PORT}`
+
 function useSocketInternal() {
   const client = ref(null)
   const connected = ref(false)
@@ -28,6 +32,19 @@ function useSocketInternal() {
   const subscriptions = ref(new Map())
   const currentDeviceId = ref(null)
   const heartbeatInterval = ref(null)
+
+  // 日志节流控制
+  let lastLogTime = 0
+  const LOG_INTERVAL = 10000 // 10秒
+
+  function shouldLog() {
+    const now = Date.now()
+    if (now - lastLogTime >= LOG_INTERVAL) {
+      lastLogTime = now
+      return true
+    }
+    return false
+  }
 
   function log(message, data = null) {
     if (data) {
@@ -70,11 +87,15 @@ function useSocketInternal() {
       }
       
       if (!deviceData || typeof deviceData !== 'object') {
-        console.log('[WebSocket] 未找到有效的设备状态数据')
+        if (shouldLog()) {
+          console.log('[WebSocket] 未找到有效的设备状态数据')
+        }
         return
       }
-      
-      console.log('[WebSocket] 解析到设备状态数据:', deviceData)
+
+      if (shouldLog()) {
+        console.log('[WebSocket] 解析到设备状态数据:', deviceData)
+      }
       
       // 如果有外部回调，调用它（让 Vue 组件处理 store 更新）
       if (deviceStatusCallback) {
@@ -100,7 +121,8 @@ function useSocketInternal() {
 
     currentDeviceId.value = deviceId
     const token = localStorage.getItem('token')
-    const sockjsBaseUrl = `http://${WS_SERVER_HOST}:${WS_SERVER_PORT}/ws/robot`
+    // 开发环境使用相对路径走 Vite 代理，生产环境使用完整 URL
+    const sockjsBaseUrl = isDev ? '/ws/robot' : `http://${WS_SERVER_HOST}:${WS_SERVER_PORT}/ws/robot`
 
     const clientConfig = {
       connectHeaders: { Authorization: `Bearer ${token || ''}` },
@@ -150,16 +172,20 @@ function useSocketInternal() {
               return obj
             }
             const fullyParsed = deepParse(parsedBody)
-            console.log('[WebSocket] 收到后端消息:')
-            console.log('  目标队列:', deviceQueue)
-            console.log('  消息内容:', JSON.stringify(fullyParsed, null, 2))
-            
+            if (shouldLog()) {
+              // console.log('[WebSocket] 收到后端消息:')
+              // console.log('  目标队列:', deviceQueue)
+              // console.log('  消息内容:', JSON.stringify(fullyParsed, null, 2))
+            }
+
             // 处理设备状态数据，更新到全局 store
             handleDeviceStatusMessage(fullyParsed)
           } catch (e) {
-            console.log('[WebSocket] 收到后端消息（非JSON）:')
-            console.log('  目标队列:', deviceQueue)
-            console.log('  原始内容:', message.body)
+            if (shouldLog()) {
+              // console.log('[WebSocket] 收到后端消息（非JSON）:')
+              // console.log('  目标队列:', deviceQueue)
+              // console.log('  原始内容:', message.body)
+            }
           }
         })
       }

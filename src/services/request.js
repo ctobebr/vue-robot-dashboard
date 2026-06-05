@@ -4,6 +4,18 @@ import axios from 'axios'
 const isDev = import.meta.env.DEV
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
 
+// 日志频率控制
+let lastLogTime = 0
+const LOG_INTERVAL = 5000 // 5秒输出一次日志
+function canLog() {
+  const now = Date.now()
+  if (now - lastLogTime >= LOG_INTERVAL) {
+    lastLogTime = now
+    return true
+  }
+  return false
+}
+
 // 创建axios实例
 const request = axios.create({
   baseURL: apiBaseUrl,
@@ -23,7 +35,7 @@ request.interceptors.request.use(
     }
     
     // 开发环境打印请求信息
-    if (isDev) {
+    if (isDev && canLog()) {
       console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`, config.data || '')
     }
     
@@ -38,7 +50,7 @@ request.interceptors.request.use(
 request.interceptors.response.use(
   (response) => {
     // 开发环境打印响应信息
-    if (isDev) {
+    if (isDev && canLog()) {
       console.log(`[API Response] ${response.config.url}`, response.data)
     }
     return response

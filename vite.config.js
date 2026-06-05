@@ -54,6 +54,30 @@ export default defineConfig(({ mode }) => {
             })
           },
           rewrite: (path) => path.replace(/^\/live-api/, '/api')
+        },
+        // WebSocket/SockJS 代理配置
+        '/ws': {
+          target: serverUrl,
+          changeOrigin: true,
+          ws: true, // 启用 WebSocket 代理
+          configure: (proxy, options) => {
+            // 监听代理请求
+            proxy.on('proxyReq', (proxyReq, req, res) => {
+              console.log('[WS代理]', req.method, req.url, '->', options.target + req.url)
+            })
+            // 监听代理响应
+            proxy.on('proxyRes', (proxyRes, req, res) => {
+              console.log('[WS代理响应]', proxyRes.statusCode, req.url)
+            })
+            // 监听 WebSocket 升级事件
+            proxy.on('upgrade', (req, socket, head) => {
+              console.log('[WS升级]', req.url, '-> WebSocket连接已建立')
+            })
+            // 监听错误
+            proxy.on('error', (err, req, res) => {
+              console.error('[WS代理错误]', err.message, req.url)
+            })
+          }
         }
       }
     }

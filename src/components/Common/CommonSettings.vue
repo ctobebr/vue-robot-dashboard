@@ -240,12 +240,17 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingStore } from '@/stores/setting'
+import { useDeviceStore } from '@/stores/device'
+import { useSocket } from '@/composables/useSocket'
 import { useClickOutside } from '@/composables/useClickOutside'
 import { ElNotification } from 'element-plus'
 import { PhCornersOut, PhGearFine, PhX, PhShare, PhDownloadSimple, PhArrowClockwise, PhInfo } from '@phosphor-icons/vue'
+import { createPointDensityMessage, createImageTransmitMessage } from '@/utils/protocol'
 
 const { t } = useI18n()
 const settingStore = useSettingStore()
+const deviceStore = useDeviceStore()
+const { sendCommand, connected } = useSocket()
 
 const fileInput = ref(null)
 const sidebarRef = ref(null)
@@ -284,12 +289,76 @@ const dogPose = computed({
 const sensorsEnabled = computed({
   get: () => robotControl.value.sensorsEnabled ? '1' : '0',
   set: (val) => {
+    const enabled = val === '1'
     settingStore.setRobotControl({
       ...robotControl.value,
-      sensorsEnabled: val === '1'
+      sensorsEnabled: enabled
     })
+    // 通知父组件显示/隐藏视频面板
+    emit('video-visible-change', enabled)
   }
 })
+
+// 监听 sensorsEnabled 变化，发送 WebSocket 命令（不在挂载时触发）
+watch(
+  () => robotControl.value.sensorsEnabled,
+  (enabled) => {
+    sendImageTransmitCommand(enabled)
+  }
+)
+
+/**
+ * 发送实时影像传输设置命令
+ * @param {boolean} enabled - 是否使能图像传输
+ */
+function sendImageTransmitCommand(enabled) {
+  // 检查是否已连接设备和WebSocket
+  if (!connected.value) {
+    console.warn('[ImageTransmit] WebSocket未连接，无法发送命令')
+    ElNotification.warning({
+      title: t('warning'),
+      message: t('deviceNotConnected'),
+      duration: 3000
+    })
+    return
+  }
+
+  if (!deviceStore.currentDevice) {
+    console.warn('[ImageTransmit] 未选择设备，无法发送命令')
+    ElNotification.warning({
+      title: t('warning'),
+      message: t('pleaseSelectDevice'),
+      duration: 3000
+    })
+    return
+  }
+
+  // 创建协议消息
+  const message = createImageTransmitMessage(enabled)
+
+  console.log('[ImageTransmit] 发送实时影像传输命令:', {
+    deviceId: deviceStore.currentDevice,
+    enabled: enabled,
+    message: message
+  })
+
+  // 发送命令
+  const result = sendCommand(deviceStore.currentDevice, 'image:transmit', message)
+
+  if (result) {
+    ElNotification.success({
+      title: t('success'),
+      message: enabled ? t('imageTransmitEnabled') : t('imageTransmitDisabled'),
+      duration: 2000
+    })
+  } else {
+    ElNotification.error({
+      title: t('error'),
+      message: t('imageTransmitSetFailed'),
+      duration: 3000
+    })
+  }
+}
 
 const pointCloudDense = computed({
   get: () => robotControl.value.pointCloudDense,
@@ -298,14 +367,77 @@ const pointCloudDense = computed({
       ...robotControl.value,
       pointCloudDense: val
     })
+    // 发送点云密度设置命令到设备
+    sendPointDensityCommand(val)
   }
 })
+
+/**
+ * 发送点云密度设置命令
+ * @param {string} densityValue - 密度值: 'low' | 'medium' | 'high'
+ */
+function sendPointDensityCommand(densityValue) {
+  // 检查是否已连接设备和WebSocket
+  if (!connected.value) {
+    console.warn('[PointDensity] WebSocket未连接，无法发送命令')
+    ElNotification.warning({
+      title: t('warning'),
+      message: t('deviceNotConnected'),
+      duration: 3000
+    })
+    return
+  }
+
+  if (!deviceStore.currentDevice) {
+    console.warn('[PointDensity] 未选择设备，无法发送命令')
+    ElNotification.warning({
+      title: t('warning'),
+      message: t('pleaseSelectDevice'),
+      duration: 3000
+    })
+    return
+  }
+
+  // 将字符串值转换为数字 (1: 低密度, 2: 中密度, 3: 高密度)
+  const densityMap = {
+    'low': 1,
+    'medium': 2,
+    'high': 3
+  }
+  const densityNum = densityMap[densityValue]
+
+  if (!densityNum) {
+    console.error('[PointDensity] 无效的密度值:', densityValue)
+    return
+  }
+
+  // 创建协议消息
+  const message = createPointDensityMessage(densityNum)
+
+  console.log('[PointDensity] 发送点云密度命令:', {
+    deviceId: deviceStore.currentDevice,
+    density: densityValue,
+    densityValue: densityNum,
+    message: message
+  })
+
+  // 发送命令
+  const result = sendCommand(deviceStore.currentDevice, 'point:density', message)
+
+  if (!result) {
+    ElNotification.error({
+      title: t('error'),
+      message: t('pointDensitySetFailed'),
+      duration: 3000
+    })
+  }
+}
 
 const props = defineProps({
   opened: Boolean
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'video-visible-change'])
 
 // 使用点击外部关闭功能
 useClickOutside(sidebarRef, null, () => {

@@ -10,14 +10,12 @@
     />
     <Header
       :openSidebar="openSidebar"
-      :videoVisible="videoVisible"
       :viewerRef="viewerRef"
       @toggle-sidebar="handleToggleSidebar"
-      @video-visible-change="handleVideoVisibleChange"
       @toggle-joystick-state="handleJoystickStateChange"
     />
     <Sidebar :opened="openSidebar" @close="openSidebar = false" />
-    <CommonSettings :opened="openCommonSettings" @close="openCommonSettings = false" />
+    <CommonSettings :opened="openCommonSettings" @close="openCommonSettings = false" @video-visible-change="handleVideoVisibleChange" />
     <DataListModal :opened="openDataListModal" @close="openDataListModal = false" />
     <AuthModal :opened="openAuthModal" @close="openAuthModal = false" />
     <Viewer ref="viewerRef" />
@@ -91,7 +89,7 @@ const openSidebar = ref(false)
 const openCommonSettings = ref(false)
 const openDataListModal = ref(false)
 const openAuthModal = ref(false)
-const videoVisible = ref(true)
+const videoVisible = ref(false)  // 默认关闭，与 Header 保持一致
 
 // 摇杆显示状态
 const joystickMode = ref(0) // 0-3循环状态
@@ -101,13 +99,16 @@ const joysticksVisible = ref(true) // 控制摇杆容器显示
 // 视频相关状态
 const webrtcUrl = ref('')
 
+// 初始化时，确保视频流为空（需要等待用户开启实时影像后才获取）
+webrtcUrl.value = ''
+
 // Viewer 组件引用
 const viewerRef = ref(null)
 
 // 初始化 composables
 const { sendMove, sendStop, connect: connectRobot } = useRobotControl()
 const { isRecording, capture, startRecord, stopRecord, setRecordingState } = useMediaControl()
-const { autoConnect: connectLiveStream, disconnect: disconnectLiveStream } = useLiveStream()
+const { getWebRTCUrlByDeviceId, disconnect: disconnectLiveStream } = useLiveStream()
 const deviceStore = useDeviceStore()
 
 // 摇杆显示状态切换处理
@@ -161,15 +162,24 @@ async function handleRecorderClick(active) {
 
 // 视频事件处理
 async function handleVideoRefresh() {
+  // 检查实时影像是否开启
+  if (!videoVisible.value) {
+    console.log('[HomePage] 实时影像为关闭状态，不获取直播流')
+    webrtcUrl.value = ''
+    return
+  }
+
   // 检查是否已连接设备
   if (!deviceStore.currentDevice) {
     ElMessage.warning('请先连接设备后再查看视频')
     console.warn('[HomePage] 未连接设备，无法获取直播流')
+    webrtcUrl.value = ''
     return
   }
 
-  // 尝试连接直播流
-  const url = await connectLiveStream()
+  // 根据设备ID获取直播流
+  console.log('[HomePage] 正在根据设备ID获取直播流:', deviceStore.currentDevice)
+  const url = await getWebRTCUrlByDeviceId(deviceStore.currentDevice)
   if (url) {
     webrtcUrl.value = url
     console.log('[HomePage] 直播流连接成功:', url)
@@ -222,7 +232,21 @@ function handleToggleSidebar() {
 }
 
 function handleVideoVisibleChange(visible) {
+  console.log('[HomePage] 实时影像状态变化:', visible)
   videoVisible.value = visible
+
+  // 当实时影像关闭时，清空视频流
+  if (!visible) {
+    console.log('[HomePage] 实时影像关闭，清空视频流')
+    webrtcUrl.value = ''
+    disconnectLiveStream()
+  } else {
+    // 当实时影像开启时，如果已有设备连接，自动获取直播流
+    if (deviceStore.currentDevice) {
+      console.log('[HomePage] 实时影像开启，自动获取直播流')
+      handleVideoRefresh()
+    }
+  }
 }
 
 onMounted(() => {

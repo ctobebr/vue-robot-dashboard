@@ -112,20 +112,7 @@
       <div class="icon-button" @click="handleToggleSidebar" :title="t('moreSettings')">
         <PhList color="#ffffff" size="20" />
       </div>
-      <!-- 视频面板控制按钮 - 暂时用视频面板的最小化按钮代替
-      <el-button
-        :type="videoVisible ? 'success' : 'default'"
-        size="default"
-        class="header-action-btn camera-btn"
-        @click="handleToggleVideo"
-      >
-        <template #icon>
-          <PhPictureInPicture v-if="videoVisible" size="18" />
-          <PhVideoCamera v-else size="18" />
-        </template>
-        <span class="btn-text">{{ videoVisible ? t('hideVideoPanel') : t('showVideoPanel') }}</span>
-      </el-button>
-      -->
+
       <el-button
         :type="recording ? 'success' : 'primary'"
         size="default"
@@ -247,7 +234,8 @@ dayjs.extend(duration)
 
 const props = defineProps({
   openSidebar: Boolean,
-  viewerRef: Object
+  viewerRef: Object,
+  videoVisible: Boolean
 })
 const emit = defineEmits(['toggle-sidebar', 'video-visible-change', 'toggle-joystick-state'])
 
@@ -261,7 +249,6 @@ const statusPopoverVisible = ref(false)
 const dataName = ref('')
 const networkDialogVisible = ref(false)
 const changeIpDialogVisible = ref(false)
-const videoVisible = ref(true)
 
 const networksValue = ref({
   ip: deviceStore.networks.ip,
@@ -386,8 +373,9 @@ function handleToggleFullscreen() {
 }
 
 function handleToggleVideo() {
-  videoVisible.value = !videoVisible.value
-  emit('video-visible-change', videoVisible.value)
+  // 计算新状态并触发事件，由父组件更新状态
+  const newVisible = !props.videoVisible
+  emit('video-visible-change', newVisible)
 }
 
 async function handleConfirmRecording() {
@@ -529,22 +517,47 @@ async function handleConfirmChangeIp() {
 let ipChangeSub = null
 let hasSubscribedHeader = false
 
+// 日志节流控制
+let lastLogTime = 0
+const LOG_INTERVAL = 10000 // 10秒
+
+function shouldLog() {
+  const now = Date.now()
+  if (now - lastLogTime >= LOG_INTERVAL) {
+    lastLogTime = now
+    return true
+  }
+  return false
+}
+
 // 处理设备状态消息回调
 function handleDeviceStatus(data) {
-  console.log('[Header] 收到设备状态数据:', data)
+  const canLog = shouldLog()
   
-  // 更新建图状态 (mapping_status: Idle/working/fail/success)
-  if (data.mapping_status !== undefined) {
-    const mappingStatus = data.mapping_status.toLowerCase()
-    deviceStore.setStatus(mappingStatus)
-    console.log('[Header] 建图状态更新为:', mappingStatus)
+  if (canLog) {
+    console.log('[Header] 收到设备状态数据:', data)
   }
   
-  // 更新录制状态 (recording_status: working/idle)
+  // 更新建图状态 (mapping_status: Idle/working/mapping/fail/success)
+  if (data.mapping_status !== undefined) {
+    const mappingStatus = data.mapping_status.toLowerCase()
+    // 兼容后端可能的值：'mapping' 也表示建图中
+    const normalizedStatus = mappingStatus === 'mapping' ? 'working' : mappingStatus
+    deviceStore.setStatus(normalizedStatus)
+    if (canLog) {
+      console.log('[Header] 建图状态原始值:', data.mapping_status, '转换后:', normalizedStatus)
+    }
+  }
+
+  // 更新录制状态 (recording_status: working/recoding/recording/idle)
   if (data.recording_status !== undefined) {
-    const isRecording = data.recording_status.toLowerCase() === 'working'
+    const statusLower = data.recording_status.toLowerCase()
+    // 兼容后端可能的拼写：'working', 'recoding', 'recording' 都表示录制中
+    const isRecording = statusLower === 'working' || statusLower === 'recoding' || statusLower === 'recording'
     deviceStore.setRecording(isRecording)
-    console.log('[Header] 录制状态更新为:', isRecording)
+    if (canLog) {
+      console.log('[Header] 录制状态原始值:', data.recording_status, '转换后:', isRecording ? 'recording' : 'idle')
+    }
   }
   
   // 更新 CPU/内存/硬盘使用率
@@ -555,7 +568,9 @@ function handleDeviceStatus(data) {
       disk: data.disk_usage ?? deviceStore.usage.disk
     }
     deviceStore.setUsage(newUsage)
-    console.log('[Header] 使用率更新为:', newUsage)
+    if (canLog) {
+      console.log('[Header] 使用率更新为:', newUsage)
+    }
   }
 }
 

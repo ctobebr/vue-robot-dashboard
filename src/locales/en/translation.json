@@ -145,5 +145,13 @@
     "fullscreen": "Fullscreen",
     "error": "Error",
     "deviceNotConnected": "Please connect device first",
-    "websocketNotConnected": "WebSocket not connected, please check network"
+    "websocketNotConnected": "WebSocket not connected, please check network",
+    "pleaseSelectDevice": "Please select a device first",
+    "warning": "Warning",
+    "success": "Success",
+    "pointDensitySetSuccess": "Point cloud density set to {density}",
+    "pointDensitySetFailed": "Failed to set point cloud density",
+    "imageTransmitEnabled": "Real-time image enabled",
+    "imageTransmitDisabled": "Real-time image disabled",
+    "imageTransmitSetFailed": "Failed to set real-time image"
 }

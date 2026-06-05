@@ -273,7 +273,7 @@ async function initWebRTC() {
   } catch (err) {
     console.error('[WebRTC] 初始化失败:', err)
     status.value = 'error'
-    statusText.value = '初始化失败: ' + err.message
+    statusText.value = '初始化失败: ' + (err?.message || '未知错误')
   }
 }
 

@@ -20,6 +20,7 @@ import { DracoLoader } from '@loaders.gl/draco'
 import { useSettingStore } from '@/stores/setting'
 import { useDeviceStore } from '@/stores/device'
 import { useSocket } from '@/composables/useSocket'
+import { deviceAPI } from '@/services/api'
 import StatsGl from './StatsGl.vue'
 import ClipVolume from './ClipVolume.vue'
 
@@ -435,6 +436,170 @@ let baseStatusSub = null
 // 标记是否已经订阅，防止重复订阅
 let hasSubscribed = false
 
+// 点云数据轮询定时器
+let frameDataTimer = null
+const FRAME_DATA_INTERVAL = 200 // 200ms轮询一次点云数据（Draco解码需要时间）
+
+// 日志频率控制
+let lastLogTime = 0
+const LOG_INTERVAL = 5000 // 5秒输出一次日志
+function canLog() {
+  const now = Date.now()
+  if (now - lastLogTime >= LOG_INTERVAL) {
+    lastLogTime = now
+    return true
+  }
+  return false
+}
+
+// 获取点云数据
+async function fetchFrameData() {
+  if (canLog()) {
+    console.log('[Viewer] fetchFrameData 被调用，timer:', frameDataTimer)
+  }
+  try {
+    if (canLog()) {
+      console.log('[Viewer] 准备调用 getFrameData，sensorName: Lidar')
+    }
+
+    const response = await deviceAPI.getFrameData('Lidar')
+    if (canLog()) {
+      console.log('[Viewer] getFrameData 响应类型:', typeof response.data)
+      console.log('[Viewer] getFrameData 数据大小:', response.data?.byteLength || 'N/A', 'bytes')
+    }
+
+    // 检查响应数据
+    if (!response.data || response.data.byteLength === 0) {
+      console.warn('[Viewer] getFrameData 返回空数据')
+      return
+    }
+
+    // 使用 DracoLoader 解码二进制数据
+    const arrayBuffer = response.data
+    if (canLog()) {
+      console.log('[Viewer] 开始Draco解码...')
+    }
+
+    // 创建 Blob 对象，因为 DracoLoader 需要 URL 或 Blob
+    const blob = new Blob([arrayBuffer])
+    const url = URL.createObjectURL(blob)
+
+    // 使用 loaders.gl 解码 Draco 数据
+    load(url, DracoLoader, { worker: false })
+      .then((loadedData) => {
+        if (canLog()) {
+          console.log('[Viewer] Draco解码成功:', loadedData)
+        }
+
+        // 释放 URL 对象
+        URL.revokeObjectURL(url)
+
+        // 提取属性数据
+        const { POSITION, COLOR_0 } = loadedData.attributes
+        const { vertexCount, boundingBox } = loadedData.header
+
+        if (canLog()) {
+          console.log('[Viewer] 点云数据:', {
+            vertexCount,
+            boundingBox,
+            hasPosition: !!POSITION,
+            hasColor: !!COLOR_0
+          })
+        }
+
+        // 更新边界框
+        if (boundingBox) {
+          minVertex.set(boundingBox[0][0], boundingBox[0][1], boundingBox[0][2])
+          maxVertex.set(boundingBox[1][0], boundingBox[1][1], boundingBox[1][2])
+          maxLong = Math.abs(maxVertex.x) + Math.abs(minVertex.x)
+          maxWidth = Math.abs(maxVertex.y) + Math.abs(minVertex.y)
+          maxHeight = Math.abs(maxVertex.z) + Math.abs(minVertex.z)
+        }
+
+        // 创建 Three.js BufferGeometry
+        const geometry = new THREE.BufferGeometry()
+        if (COLOR_0) {
+          geometry.setAttribute('color', new THREE.BufferAttribute(COLOR_0.value, 3, true))
+        }
+        if (POSITION) {
+          geometry.setAttribute('position', new THREE.Float32BufferAttribute(POSITION.value, POSITION.size))
+        }
+
+        // 存入缓存数组
+        if (firstPoints.length >= 100) {
+          firstPoints.shift()
+        }
+        firstPoints.push(geometry)
+
+        if (settingStore.appearance.collectionMode === 'work') {
+          if (thirdPoints.length > 3000) {
+            thirdPoints.shift()
+          }
+          thirdPoints.push(geometry)
+        } else {
+          thirdPoints.push(geometry)
+        }
+
+        // 渲染点云
+        renderPointClouds()
+        updatePointCloudMaterial()
+
+        if (canLog()) {
+          console.log('[Viewer] 点云渲染完成')
+        }
+      })
+      .catch((error) => {
+        URL.revokeObjectURL(url)
+        console.error('[Viewer] Draco解码失败:', error)
+      })
+
+  } catch (error) {
+    console.error('[Viewer] 获取点云数据失败:', error)
+    console.error('[Viewer] 错误详情:', error.response?.data || error.message)
+  }
+  if (canLog()) {
+    console.log('[Viewer] fetchFrameData 执行完成')
+  }
+}
+
+// 开始轮询点云数据
+function startFrameDataPolling() {
+  if (canLog()) {
+    console.log('[Viewer] 尝试开始轮询，当前timer:', frameDataTimer)
+  }
+  if (frameDataTimer) {
+    if (canLog()) {
+      console.log('[Viewer] 轮询已在运行中，跳过')
+    }
+    return
+  }
+  if (canLog()) {
+    console.log('[Viewer] 开始轮询点云数据，间隔:', FRAME_DATA_INTERVAL, 'ms')
+  }
+  frameDataTimer = setInterval(fetchFrameData, FRAME_DATA_INTERVAL)
+  if (canLog()) {
+    console.log('[Viewer] 轮询已启动，timer:', frameDataTimer)
+  }
+}
+
+// 停止轮询点云数据
+function stopFrameDataPolling() {
+  if (canLog()) {
+    console.log('[Viewer] 尝试停止轮询，当前timer:', frameDataTimer)
+  }
+  if (frameDataTimer) {
+    clearInterval(frameDataTimer)
+    frameDataTimer = null
+    if (canLog()) {
+      console.log('[Viewer] 停止轮询点云数据')
+    }
+  } else {
+    if (canLog()) {
+      console.log('[Viewer] 没有运行的轮询需要停止')
+    }
+  }
+}
+
 function setupSocketListeners() {
   watch([connected, () => deviceStore.currentDevice], ([isConnected, deviceId]) => {
     if (isConnected && deviceId && !hasSubscribed) {
@@ -639,18 +804,34 @@ watch(
   }
 )
 
+// 监听录制状态，控制点云数据轮询
+watch(
+  () => deviceStore.recording,
+  (isRecording) => {
+    if (isRecording) {
+      startFrameDataPolling()
+    } else {
+      stopFrameDataPolling()
+    }
+  }
+)
+
 /**
  * 重置 Viewer 状态
  * 清空所有点云数据、足迹、位置等，模拟页面 reload 的效果
  * 但保持 WebSocket 连接和设备连接
  */
 function resetViewer() {
-  console.log('[Viewer] 开始重置...')
+  if (canLog()) {
+    console.log('[Viewer] 开始重置...')
+  }
 
   // 1. 清空点云数据数组
   firstPoints = []
   thirdPoints = []
-  console.log('[Viewer] 点云数据已清空')
+  if (canLog()) {
+    console.log('[Viewer] 点云数据已清空')
+  }
 
   // 2. 清空足迹数据
   footprintPoints = [new THREE.Vector3(0, 0, 0)]
@@ -660,7 +841,9 @@ function resetViewer() {
     footprintLine.material.dispose()
     footprintLine = null
   }
-  console.log('[Viewer] 足迹数据已清空')
+  if (canLog()) {
+    console.log('[Viewer] 足迹数据已清空')
+  }
 
   // 3. 清空位置标记
   if (locationGroup) {
@@ -671,7 +854,9 @@ function resetViewer() {
     })
     locationGroup = null
   }
-  console.log('[Viewer] 位置标记已清空')
+  if (canLog()) {
+    console.log('[Viewer] 位置标记已清空')
+  }
 
   // 4. 重置相机位置
   camera.position.set(10, 10, 10)
@@ -679,7 +864,9 @@ function resetViewer() {
   controls.target.set(0, 0, 0)
   controls.update()
   hasSetCamera = false
-  console.log('[Viewer] 相机位置已重置')
+  if (canLog()) {
+    console.log('[Viewer] 相机位置已重置')
+  }
 
   // 5. 重置边界数据
   minVertex.set(0, 0, 0)
@@ -687,18 +874,26 @@ function resetViewer() {
   maxLong = 0
   maxWidth = 0
   maxHeight = 0
-  console.log('[Viewer] 边界数据已重置')
+  if (canLog()) {
+    console.log('[Viewer] 边界数据已重置')
+  }
 
   // 6. 重新创建空的点云场景
   createPointCloud()
-  console.log('[Viewer] 点云场景已重建')
+  if (canLog()) {
+    console.log('[Viewer] 点云场景已重建')
+  }
 
   // 7. 重新创建坐标轴、刻度尺
   createAxes()
   createScaleplate()
-  console.log('[Viewer] 坐标轴和刻度尺已重建')
+  if (canLog()) {
+    console.log('[Viewer] 坐标轴和刻度尺已重建')
+  }
 
-  console.log('[Viewer] 重置完成')
+  if (canLog()) {
+    console.log('[Viewer] 重置完成')
+  }
 }
 
 // 暴露重置方法给父组件
