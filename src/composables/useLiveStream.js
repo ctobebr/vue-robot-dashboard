@@ -9,6 +9,24 @@ const isDev = import.meta.env.DEV
 const STREAM_API_BASE = isDev ? '/live-api' : `http://${SERVER_IP}:${STREAM_PORT}/api`
 
 /**
+ * 转换 WebRTC URL 为代理路径（开发环境）
+ * @param {string} url 原始 WebRTC URL
+ * @returns {string} 转换后的 URL
+ */
+export function getWebRTCProxyUrl(url) {
+  if (!url || !isDev) return url
+
+  try {
+    const urlObj = new URL(url)
+    // 将 http://192.168.1.109:3800/index/api/webrtc?xxx 转换为 /zlm-webrtc/index/api/webrtc?xxx
+    return `/zlm-webrtc${urlObj.pathname}${urlObj.search}`
+  } catch (e) {
+    console.warn('[LiveStream] WebRTC URL 转换失败:', url)
+    return url
+  }
+}
+
+/**
  * 直播流管理组合式函数
  * 用于获取直播列表并管理 WebRTC 视频流播放
  */
@@ -108,8 +126,10 @@ export function useLiveStream() {
    */
   function selectStream(stream) {
     currentStream.value = stream
-    webrtcUrl.value = stream?.session?.WEBRTC || ''
-    console.log('[LiveStream] 选择直播流:', stream?.name, 'WebRTC地址:', webrtcUrl.value)
+    const originalUrl = stream?.session?.WEBRTC || ''
+    // 开发环境使用代理 URL，避免跨域问题
+    webrtcUrl.value = getWebRTCProxyUrl(originalUrl)
+    console.log('[LiveStream] 选择直播流:', stream?.name, '原始地址:', originalUrl, '使用地址:', webrtcUrl.value)
   }
 
   /**

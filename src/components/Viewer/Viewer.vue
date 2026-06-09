@@ -12,9 +12,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, shallowRef, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { Line2 } from 'three/examples/jsm/lines/Line2.js'
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import { load, registerLoaders, setLoaderOptions } from '@loaders.gl/core'
 import { DracoLoader } from '@loaders.gl/draco'
 import { useSettingStore } from '@/stores/setting'
@@ -37,7 +40,7 @@ const deviceStore = useDeviceStore()
 const { client, connected, subscribe, unsubscribe } = useSocket()
 
 const containerRef = ref(null)
-const rendererRef = ref(null)
+const rendererRef = shallowRef(null)
 let scene
 let camera
 let renderer
@@ -49,11 +52,18 @@ let scaleplateHelper = null
 let footprintLine = null
 let footprintPoints = [new THREE.Vector3(0, 0, 0)]
 let locationGroup = null
-let pointCloudGroup = null
-let pointCloudMaterial = null
 
-let firstPoints = []
-let thirdPoints = []
+// 点云渲染：双数组分离模式（与 3d-viewer/PointCloud.tsx 一致）
+// 第一视角和第三视角分别存储不同的帧数据，切换时显示不同历史范围
+// 第一视角保留100帧（约20秒），第三视角保留3000帧（约10分钟）
+// ⚠️ 所有 Three.js 对象使用普通变量存储，严禁放入 Vue 响应式系统
+let pointCloudMaterial = null
+let pointCloudGroup = null         // 单一 Group，当前视角的点云都在此 Group 中
+let firstPersonFrames = []         // 第一视角帧数组，最大100帧
+let thirdPersonFrames = []         // 第三视角帧数组，最大3000帧
+const MAX_FIRST_PERSON_FRAMES = 100    // 第一视角最大帧数
+const MAX_THIRD_PERSON_FRAMES = 3000   // 第三视角最大帧数
+
 let latestPosition = null
 let latestOrientation = null
 let cameraTarget = new THREE.Vector3()
@@ -63,6 +73,16 @@ let maxVertex = new THREE.Vector3(0, 0, 0)
 let maxLong = 0
 let maxWidth = 0
 let maxHeight = 0
+
+// 帧序号，用于防止 Draco 异步解码乱序
+let frameSeq = 0
+// 调试统计
+let debugStats = {
+  totalFrames: 0,
+  skippedFrames: 0,
+  totalPoints: 0,
+  lastLogTime: 0
+}
 
 function createPointCloudMaterial() {
   pointCloudMaterial = new THREE.ShaderMaterial({
@@ -242,9 +262,23 @@ function createFootprint() {
   }
   
   const { size, visible, color } = settingStore.appearance.footprint
-  const geometry = new THREE.BufferGeometry().setFromPoints(footprintPoints)
-  const material = new THREE.LineBasicMaterial({ color, linewidth: size })
-  footprintLine = new THREE.Line(geometry, material)
+  const geometry = new LineGeometry()
+  if (footprintPoints.length > 0) {
+    const positions = []
+    footprintPoints.forEach(p => {
+      positions.push(p.x, p.y, p.z)
+    })
+    geometry.setPositions(positions)
+  }
+  const material = new LineMaterial({ 
+    color: new THREE.Color(color), 
+    linewidth: size,
+    worldUnits: false,
+    dashed: false,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight)
+  })
+  footprintLine = new Line2(geometry, material)
+  footprintLine.computeLineDistances()
   footprintLine.visible = visible
   scene.add(footprintLine)
 }
@@ -256,7 +290,12 @@ function updateFootprint(point) {
   if (distance >= 0.1) {
     footprintPoints.push(point)
     if (footprintLine) {
-      footprintLine.geometry.setFromPoints(footprintPoints)
+      const positions = []
+      footprintPoints.forEach(p => {
+        positions.push(p.x, p.y, p.z)
+      })
+      footprintLine.geometry.setPositions(positions)
+      footprintLine.computeLineDistances()
     }
   }
 }
@@ -303,34 +342,103 @@ function updateLocation(position, rotation) {
   }
 }
 
+/**
+ * 创建点云渲染结构：单一 Group
+ * 双数组分离模式 — 第一视角和第三视角分别存储不同的帧数据
+ * 与 3d-viewer/PointCloud.tsx 一致
+ */
 function createPointCloud() {
+  // 清理旧的 Group 和帧数据
   if (pointCloudGroup) {
     scene.remove(pointCloudGroup)
-    pointCloudGroup.traverse(child => {
-      if (child.geometry) child.geometry.dispose()
-    })
   }
-  
+  firstPersonFrames.forEach(frame => {
+    if (frame.geometry) frame.geometry.dispose()
+  })
+  thirdPersonFrames.forEach(frame => {
+    if (frame.geometry) frame.geometry.dispose()
+  })
+  firstPersonFrames = []
+  thirdPersonFrames = []
+
   pointCloudGroup = new THREE.Group()
   pointCloudGroup.up.set(0, 0, 1)
   scene.add(pointCloudGroup)
 }
 
-function renderPointClouds() {
-  if (!pointCloudGroup || !pointCloudMaterial) return
-  
+/**
+ * 根据当前视角切换 Group 中显示的点云
+ * 第一视角显示 firstPersonFrames，第三视角显示 thirdPersonFrames
+ */
+function updatePointCloudVisibility() {
+  if (!pointCloudGroup) return
+
+  const isFirst = settingStore.camera.isFirstPerson
+
+  // 清除 Group 中所有子对象
   while (pointCloudGroup.children.length > 0) {
-    const child = pointCloudGroup.children[0]
-    pointCloudGroup.remove(child)
-    if (child.geometry) child.geometry.dispose()
+    pointCloudGroup.remove(pointCloudGroup.children[0])
   }
-  
-  const points = settingStore.camera.isFirstPerson ? firstPoints : thirdPoints
-  
-  points.forEach((geometry, index) => {
-    const pointsMesh = new THREE.Points(geometry, pointCloudMaterial)
-    pointCloudGroup.add(pointsMesh)
+
+  // 根据视角添加对应的帧
+  const frames = isFirst ? firstPersonFrames : thirdPersonFrames
+  frames.forEach(frame => {
+    pointCloudGroup.add(frame.points)
   })
+}
+
+/**
+ * 将新帧的点云数据添加到两个视角的数组中
+ * 同一帧数据同时添加到 firstPersonFrames 和 thirdPersonFrames
+ * 但两个数组有不同的上限（100 vs 3000）
+ */
+function addPointCloudFrame(positionArray, colorArray, vertexCount) {
+  if (!pointCloudMaterial || !positionArray || vertexCount === 0) return
+
+  debugStats.totalFrames++
+
+  // 为本帧创建独立的 BufferGeometry
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(positionArray, 3))
+
+  if (colorArray && colorArray.length > 0) {
+    geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3, true))
+  } else {
+    const colors = new Float32Array(vertexCount * 3)
+    for (let i = 0; i < vertexCount * 3; i++) {
+      colors[i] = 1.0
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  }
+
+  geometry.computeBoundingSphere()
+
+  // 创建独立的 Points 对象
+  const points = new THREE.Points(geometry, pointCloudMaterial)
+
+  // 添加到第一视角数组（最大100帧）
+  firstPersonFrames.push({ geometry, points })
+  while (firstPersonFrames.length > MAX_FIRST_PERSON_FRAMES) {
+    const oldest = firstPersonFrames.shift()
+    oldest.geometry.dispose()
+  }
+
+  // 添加到第三视角数组（最大3000帧）
+  // 注意：需要为第三视角创建独立的 geometry 和 points
+  const geometry3 = geometry.clone()
+  const points3 = new THREE.Points(geometry3, pointCloudMaterial)
+  thirdPersonFrames.push({ geometry: geometry3, points: points3 })
+  while (thirdPersonFrames.length > MAX_THIRD_PERSON_FRAMES) {
+    const oldest = thirdPersonFrames.shift()
+    oldest.geometry.dispose()
+  }
+
+  // 根据当前视角更新显示
+  updatePointCloudVisibility()
+
+  const currentFrames = settingStore.camera.isFirstPerson ? firstPersonFrames : thirdPersonFrames
+  debugStats.totalPoints = currentFrames.reduce((sum, f) =>
+    sum + (f.geometry.attributes.position?.count || 0), 0)
 }
 
 function updatePointCloudMaterial() {
@@ -400,8 +508,8 @@ function animate() {
         cameraTarget.lerp(target, 0.1)
         camera.lookAt(cameraTarget)
       } else if (!hasSetCamera) {
-        camera.position.copy(latestPosition)
-        cameraTarget.copy(target)
+        camera.position.lerp(latestPosition, 0.1)
+        cameraTarget.lerp(target, 0.1)
         camera.lookAt(cameraTarget)
         hasSetCamera = true
       }
@@ -411,8 +519,8 @@ function animate() {
         cameraTarget.lerp(new THREE.Vector3(0, 0, 0), 0.1)
         camera.lookAt(cameraTarget)
       } else if (!hasSetCamera) {
-        camera.position.set(10, 10, 10)
-        cameraTarget.set(0, 0, 0)
+        camera.position.lerp(new THREE.Vector3(10, 10, 10), 0.1)
+        cameraTarget.lerp(new THREE.Vector3(0, 0, 0), 0.1)
         camera.lookAt(cameraTarget)
         hasSetCamera = true
       }
@@ -427,10 +535,15 @@ function handleResize() {
   camera.aspect = containerRef.value.clientWidth / containerRef.value.clientHeight
   camera.updateProjectionMatrix()
   renderer.setSize(containerRef.value.clientWidth, containerRef.value.clientHeight)
+  if (footprintLine && footprintLine.material) {
+    footprintLine.material.resolution.set(
+      containerRef.value.clientWidth * Math.max(window.devicePixelRatio, 2),
+      containerRef.value.clientHeight * Math.max(window.devicePixelRatio, 2)
+    )
+  }
 }
 
 // 订阅引用
-let pointCloudSub = null
 let baseStatusSub = null
 
 // 标记是否已经订阅，防止重复订阅
@@ -454,9 +567,13 @@ function canLog() {
 
 // 获取点云数据
 async function fetchFrameData() {
+  // 注意：frameSeq 在确认数据有效后才递增，防止空数据导致的序号跳跃
+  // 空数据返回时 frameSeq 不变，避免后续有效帧的 currentSeq 与 frameSeq 不匹配而被跳过
+
   if (canLog()) {
-    console.log('[Viewer] fetchFrameData 被调用，timer:', frameDataTimer)
+    console.log('[Viewer] fetchFrameData 被调用, timer:', frameDataTimer)
   }
+
   try {
     if (canLog()) {
       console.log('[Viewer] 准备调用 getFrameData，sensorName: Lidar')
@@ -468,16 +585,19 @@ async function fetchFrameData() {
       console.log('[Viewer] getFrameData 数据大小:', response.data?.byteLength || 'N/A', 'bytes')
     }
 
-    // 检查响应数据
+    // 检查响应数据：空数据时不递增 frameSeq，直接返回
     if (!response.data || response.data.byteLength === 0) {
       console.warn('[Viewer] getFrameData 返回空数据')
       return
     }
 
+    // 确认有有效数据后才递增帧序号，防止空数据导致的竞态
+    const currentSeq = ++frameSeq
+
     // 使用 DracoLoader 解码二进制数据
     const arrayBuffer = response.data
     if (canLog()) {
-      console.log('[Viewer] 开始Draco解码...')
+      console.log('[Viewer] 开始Draco解码, seq:', currentSeq)
     }
 
     // 创建 Blob 对象，因为 DracoLoader 需要 URL 或 Blob
@@ -487,8 +607,20 @@ async function fetchFrameData() {
     // 使用 loaders.gl 解码 Draco 数据
     load(url, DracoLoader, { worker: false })
       .then((loadedData) => {
+        // 检查是否已有更新的帧解码完成，防止乱序
+        if (currentSeq !== frameSeq) {
+          if (canLog()) {
+            console.warn('[Viewer] 丢弃过期帧 seq:', currentSeq, '当前最新:', frameSeq)
+          }
+          debugStats.skippedFrames++
+          URL.revokeObjectURL(url)
+          return
+        }
+
+        debugStats.totalFrames++
+
         if (canLog()) {
-          console.log('[Viewer] Draco解码成功:', loadedData)
+          console.log('[Viewer] Draco解码成功 seq:', currentSeq, loadedData)
         }
 
         // 释放 URL 对象
@@ -500,6 +632,7 @@ async function fetchFrameData() {
 
         if (canLog()) {
           console.log('[Viewer] 点云数据:', {
+            seq: currentSeq,
             vertexCount,
             boundingBox,
             hasPosition: !!POSITION,
@@ -507,50 +640,61 @@ async function fetchFrameData() {
           })
         }
 
-        // 更新边界框
+        // 更新边界框 — 累积式，只扩大不缩小（与 React 项目 PointCloud.tsx 一致）
+        // 关键修复：如果每帧替换边界框，当新帧的边界框小于历史累积范围时，
+        // clipBox 会缩小，导致边缘点被 shader 的裁剪盒逻辑丢弃，产生闪烁
         if (boundingBox) {
-          minVertex.set(boundingBox[0][0], boundingBox[0][1], boundingBox[0][2])
-          maxVertex.set(boundingBox[1][0], boundingBox[1][1], boundingBox[1][2])
+          const bbMinX = boundingBox[0][0]
+          const bbMinY = boundingBox[0][1]
+          const bbMinZ = boundingBox[0][2]
+          const bbMaxX = boundingBox[1][0]
+          const bbMaxY = boundingBox[1][1]
+          const bbMaxZ = boundingBox[1][2]
+
+          if (bbMinX < minVertex.x) minVertex.x = bbMinX
+          if (bbMinY < minVertex.y) minVertex.y = bbMinY
+          if (bbMinZ < minVertex.z) minVertex.z = bbMinZ
+          if (bbMaxX > maxVertex.x) maxVertex.x = bbMaxX
+          if (bbMaxY > maxVertex.y) maxVertex.y = bbMaxY
+          if (bbMaxZ > maxVertex.z) maxVertex.z = bbMaxZ
+
           maxLong = Math.abs(maxVertex.x) + Math.abs(minVertex.x)
           maxWidth = Math.abs(maxVertex.y) + Math.abs(minVertex.y)
           maxHeight = Math.abs(maxVertex.z) + Math.abs(minVertex.z)
         }
 
-        // 创建 Three.js BufferGeometry
-        const geometry = new THREE.BufferGeometry()
-        if (COLOR_0) {
-          geometry.setAttribute('color', new THREE.BufferAttribute(COLOR_0.value, 3, true))
+        // 提取 position 和 color 原始数组数据
+        let positionArray = null
+        let colorArray = null
+        if (POSITION && POSITION.value) {
+          positionArray = POSITION.value instanceof Float32Array
+            ? POSITION.value
+            : new Float32Array(POSITION.value)
         }
-        if (POSITION) {
-          geometry.setAttribute('position', new THREE.Float32BufferAttribute(POSITION.value, POSITION.size))
-        }
-
-        // 存入缓存数组
-        if (firstPoints.length >= 100) {
-          firstPoints.shift()
-        }
-        firstPoints.push(geometry)
-
-        if (settingStore.appearance.collectionMode === 'work') {
-          if (thirdPoints.length > 3000) {
-            thirdPoints.shift()
-          }
-          thirdPoints.push(geometry)
-        } else {
-          thirdPoints.push(geometry)
+        if (COLOR_0 && COLOR_0.value) {
+          colorArray = COLOR_0.value instanceof Uint8Array
+            ? COLOR_0.value
+            : new Uint8Array(COLOR_0.value)
         }
 
-        // 渲染点云
-        renderPointClouds()
+        // 单帧独立渲染：将新帧数据创建为独立的 THREE.Points
+        // 每帧创建独立的 BufferGeometry，创建后永不修改（与 React 项目一致）
+        addPointCloudFrame(positionArray, colorArray, vertexCount)
         updatePointCloudMaterial()
 
+        // 定期输出调试统计
         if (canLog()) {
-          console.log('[Viewer] 点云渲染完成')
+          console.log('[Viewer] 点云渲染完成, seq:', currentSeq, '调试统计:', {
+            totalFrames: debugStats.totalFrames,
+            skippedFrames: debugStats.skippedFrames,
+            totalPoints: debugStats.totalPoints,
+            currentView: settingStore.camera.isFirstPerson ? 'first' : 'third'
+          })
         }
       })
       .catch((error) => {
         URL.revokeObjectURL(url)
-        console.error('[Viewer] Draco解码失败:', error)
+        console.error('[Viewer] Draco解码失败 seq:', currentSeq, error)
       })
 
   } catch (error) {
@@ -604,52 +748,9 @@ function setupSocketListeners() {
   watch([connected, () => deviceStore.currentDevice], ([isConnected, deviceId]) => {
     if (isConnected && deviceId && !hasSubscribed) {
       hasSubscribed = true
-      let minX = 0, minY = 0, minZ = 0, maxX = 0, maxY = 0, maxZ = 0
 
-      pointCloudSub = subscribe(deviceId, 'data', (msg) => {
-        if (msg.type === 'PointCloud') {
-          const data = msg.data || msg
-          load(data, DracoLoader, { worker: false }).then((loadedData) => {
-            const { POSITION, COLOR_0 } = loadedData.attributes
-            const { vertexCount, boundingBox } = loadedData.header
-
-            if (minX > boundingBox[0][0]) minX = boundingBox[0][0]
-            if (minY > boundingBox[0][1]) minY = boundingBox[0][1]
-            if (minZ > boundingBox[0][2]) minZ = boundingBox[0][2]
-            if (maxX < boundingBox[1][0]) maxX = boundingBox[1][0]
-            if (maxY < boundingBox[1][1]) maxY = boundingBox[1][1]
-            if (maxZ < boundingBox[1][2]) maxZ = boundingBox[1][2]
-
-            minVertex.set(minX, minY, minZ)
-            maxVertex.set(maxX, maxY, maxZ)
-            maxLong = Math.abs(maxX) + Math.abs(minX)
-            maxWidth = Math.abs(maxY) + Math.abs(minY)
-            maxHeight = Math.abs(maxZ) + Math.abs(minZ)
-
-            const geometry = new THREE.BufferGeometry()
-            geometry.setAttribute('color', new THREE.BufferAttribute(COLOR_0.value, 3, true))
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(POSITION.value, POSITION.size))
-
-            if (firstPoints.length >= 100) {
-              firstPoints.shift()
-            }
-            firstPoints.push(geometry)
-
-            if (settingStore.appearance.collectionMode === 'work') {
-              if (thirdPoints.length > 3000) {
-                thirdPoints.shift()
-              }
-              thirdPoints.push(geometry)
-            } else {
-              thirdPoints.push(geometry)
-            }
-
-            renderPointClouds()
-            updatePointCloudMaterial()
-          })
-        }
-      })
-
+      // 点云数据通过 HTTP 接口轮询获取（fetchFrameData），不再通过 WebSocket 接收
+      // WebSocket 仅订阅设备状态（BaseStatus）用于相机跟随和轨迹更新
       baseStatusSub = subscribe(deviceId, 'status', (msg) => {
         if (msg.type === 'BaseStatus') {
           const data = msg.data || msg
@@ -786,7 +887,7 @@ watch(
   () => settingStore.camera.isFirstPerson,
   () => {
     hasSetCamera = false
-    renderPointClouds()
+    updatePointCloudVisibility()
   }
 )
 
@@ -794,13 +895,9 @@ watch(
 
 watch(
   () => settingStore.appearance.collectionMode,
-  (newMode) => {
-    if (newMode === 'work') {
-      if (thirdPoints.length > 3000) {
-        thirdPoints = thirdPoints.slice(-3000)
-      }
-    }
-    renderPointClouds()
+  () => {
+    // collectionMode 切换时无需特殊处理
+    // 多帧累积模式下每帧独立，无需合并/拆分
   }
 )
 
@@ -826,9 +923,27 @@ function resetViewer() {
     console.log('[Viewer] 开始重置...')
   }
 
-  // 1. 清空点云数据数组
-  firstPoints = []
-  thirdPoints = []
+  // 1. 清空点云数据（释放所有帧的 geometry）
+  firstPersonFrames.forEach(frame => {
+    if (frame.geometry) frame.geometry.dispose()
+  })
+  thirdPersonFrames.forEach(frame => {
+    if (frame.geometry) frame.geometry.dispose()
+  })
+  firstPersonFrames = []
+  thirdPersonFrames = []
+  if (pointCloudGroup) {
+    while (pointCloudGroup.children.length > 0) {
+      pointCloudGroup.remove(pointCloudGroup.children[0])
+    }
+  }
+  frameSeq = 0
+  debugStats = {
+    totalFrames: 0,
+    skippedFrames: 0,
+    totalPoints: 0,
+    lastLogTime: 0
+  }
   if (canLog()) {
     console.log('[Viewer] 点云数据已清空')
   }
@@ -907,7 +1022,6 @@ onUnmounted(() => {
 
   // 取消STOMP订阅
   if (deviceStore.currentDevice) {
-    unsubscribe(deviceStore.currentDevice, 'data')
     unsubscribe(deviceStore.currentDevice, 'status')
   }
 
@@ -931,23 +1045,18 @@ onUnmounted(() => {
       if (child.material) child.material.dispose()
     })
   }
-  if (clipVolumeGroup) {
-    scene.remove(clipVolumeGroup)
-    if (clipBox) {
-      clipBox.geometry.dispose()
-      clipBox.material.dispose()
-    }
-  }
-  if (transformControls) {
-    scene.remove(transformControls)
-    transformControls.dispose()
-  }
   if (pointCloudGroup) {
     scene.remove(pointCloudGroup)
-    pointCloudGroup.traverse(child => {
-      if (child.geometry) child.geometry.dispose()
-    })
   }
+  // 释放所有帧的 geometry
+  firstPersonFrames.forEach(frame => {
+    if (frame.geometry) frame.geometry.dispose()
+  })
+  thirdPersonFrames.forEach(frame => {
+    if (frame.geometry) frame.geometry.dispose()
+  })
+  firstPersonFrames = []
+  thirdPersonFrames = []
   if (pointCloudMaterial) {
     pointCloudMaterial.dispose()
   }

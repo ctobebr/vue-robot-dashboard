@@ -37,7 +37,11 @@
         <span class="status-indicator" :class="{ active: isConnected }">{{ isConnected ? t('connected') : t('disconnected') }}</span>
       </div>
       <!-- 拖拽调整尺寸手柄 -->
-      <div class="resize-handle" @mousedown="startResize">
+      <div
+        class="resize-handle"
+        @mousedown="startResize"
+        @touchstart.prevent="startResizeTouch"
+      >
         <svg width="12" height="12" viewBox="0 0 12 12">
           <path d="M0 0 L12 12 M4 0 L12 8 M8 0 L12 4" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
         </svg>
@@ -149,6 +153,32 @@ function stopResize() {
   document.body.style.cursor = ''
 }
 
+// ========== 触摸拖拽调整面板尺寸（平板适配） ==========
+function startResizeTouch(e) {
+  e.preventDefault()
+  isResizing.value = true
+  document.addEventListener('touchmove', onResizeTouch, { passive: false })
+  document.addEventListener('touchend', stopResizeTouch)
+  document.addEventListener('touchcancel', stopResizeTouch)
+  document.body.style.userSelect = 'none'
+}
+
+function onResizeTouch(e) {
+  if (!isResizing.value) return
+  e.preventDefault()
+  const touch = e.touches[0]
+  const newWidth = touch.clientX - 20
+  panelWidth.value = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, newWidth))
+}
+
+function stopResizeTouch() {
+  isResizing.value = false
+  document.removeEventListener('touchmove', onResizeTouch)
+  document.removeEventListener('touchend', stopResizeTouch)
+  document.removeEventListener('touchcancel', stopResizeTouch)
+  document.body.style.userSelect = ''
+}
+
 // 响应式调整
 function handleWindowResize() {
   if (panelWidth.value > window.innerWidth - 40) {
@@ -163,6 +193,9 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('mousemove', onResize)
   document.removeEventListener('mouseup', stopResize)
+  document.removeEventListener('touchmove', onResizeTouch)
+  document.removeEventListener('touchend', stopResizeTouch)
+  document.removeEventListener('touchcancel', stopResizeTouch)
   window.removeEventListener('resize', handleWindowResize)
   document.body.style.userSelect = ''
   document.body.style.cursor = ''

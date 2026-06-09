@@ -31,19 +31,51 @@
           @mousedown="handleMouseDown"
         ></div>
 
-        <div class="direction-btn up" :class="{ active: currentDirection === 'up' }" @mousedown.stop="handleDirectionKeyDown('up')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('up')" @touchend.stop.prevent="handleDirectionKeyUp">
+        <div
+          v-if="showUpKey"
+          class="direction-btn up"
+          :class="{ active: currentDirection === 'up' }"
+          @mousedown.stop="handleDirectionKeyDown('up')"
+          @mouseup.stop="handleDirectionKeyUp"
+          @touchstart.stop.prevent="handleDirectionKeyDown('up')"
+          @touchend.stop.prevent="handleDirectionKeyUp"
+        >
           <el-icon><ArrowUp /></el-icon>
         </div>
 
-        <div class="direction-btn left" :class="{ active: currentDirection === 'left' }" @mousedown.stop="handleDirectionKeyDown('left')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('left')" @touchend.stop.prevent="handleDirectionKeyUp">
+        <div
+          v-if="showLeftKey"
+          class="direction-btn left"
+          :class="{ active: currentDirection === 'left' }"
+          @mousedown.stop="handleDirectionKeyDown('left')"
+          @mouseup.stop="handleDirectionKeyUp"
+          @touchstart.stop.prevent="handleDirectionKeyDown('left')"
+          @touchend.stop.prevent="handleDirectionKeyUp"
+        >
           <el-icon><ArrowLeft /></el-icon>
         </div>
 
-        <div class="direction-btn right" :class="{ active: currentDirection === 'right' }" @mousedown.stop="handleDirectionKeyDown('right')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('right')" @touchend.stop.prevent="handleDirectionKeyUp">
+        <div
+          v-if="showRightKey"
+          class="direction-btn right"
+          :class="{ active: currentDirection === 'right' }"
+          @mousedown.stop="handleDirectionKeyDown('right')"
+          @mouseup.stop="handleDirectionKeyUp"
+          @touchstart.stop.prevent="handleDirectionKeyDown('right')"
+          @touchend.stop.prevent="handleDirectionKeyUp"
+        >
           <el-icon><ArrowRight /></el-icon>
         </div>
 
-        <div class="direction-btn down" :class="{ active: currentDirection === 'down' }" @mousedown.stop="handleDirectionKeyDown('down')" @mouseup.stop="handleDirectionKeyUp" @touchstart.stop.prevent="handleDirectionKeyDown('down')" @touchend.stop.prevent="handleDirectionKeyUp">
+        <div
+          v-if="showDownKey"
+          class="direction-btn down"
+          :class="{ active: currentDirection === 'down' }"
+          @mousedown.stop="handleDirectionKeyDown('down')"
+          @mouseup.stop="handleDirectionKeyUp"
+          @touchstart.stop.prevent="handleDirectionKeyDown('down')"
+          @touchend.stop.prevent="handleDirectionKeyUp"
+        >
           <el-icon><ArrowDown /></el-icon>
         </div>
       </div>
@@ -93,7 +125,7 @@ const props = defineProps(/** @type {JoystickProps} */ ({
     default: 120
   },
   showDirectionKeys: {
-    type: Boolean,
+    type: [Boolean, Object],
     default: true
   },
   color: {
@@ -106,7 +138,7 @@ const props = defineProps(/** @type {JoystickProps} */ ({
   },
   speedMode: {
     type: String,
-    default: 'normal',
+    default: 'fast',
     validator: (value) => ['slow', 'normal', 'fast'].includes(value)
   },
   joystickId: {
@@ -127,6 +159,27 @@ const props = defineProps(/** @type {JoystickProps} */ ({
  */
 
 const emit = defineEmits(['move', 'stop'])
+
+// 方向键显示控制计算属性
+const showUpKey = computed(() => {
+  if (typeof props.showDirectionKeys === 'boolean') return props.showDirectionKeys
+  return props.showDirectionKeys.up !== false
+})
+
+const showDownKey = computed(() => {
+  if (typeof props.showDirectionKeys === 'boolean') return props.showDirectionKeys
+  return props.showDirectionKeys.down !== false
+})
+
+const showLeftKey = computed(() => {
+  if (typeof props.showDirectionKeys === 'boolean') return props.showDirectionKeys
+  return props.showDirectionKeys.left !== false
+})
+
+const showRightKey = computed(() => {
+  if (typeof props.showDirectionKeys === 'boolean') return props.showDirectionKeys
+  return props.showDirectionKeys.right !== false
+})
 
 const containerRef = ref(null)
 const joystickWrapper = ref(null)
@@ -169,7 +222,7 @@ const activeTouchId = ref(null)
  * @property {Object} key 方向键模式配置
  * @property {number} key.maxFrequency 方向键最大频率（Hz）
  * @property {number} key.minInterval 方向键最小间隔（毫秒）
- * @property {number} key.fixedSpeed 方向键固定速度
+ * @property {number} key.fixedSpeed 方向键固定速度（已废弃，使用 speedMappings）
  * @property {Object} safety 安全机制配置
  * @property {number} safety.autoStopDelay 自动停止延迟（毫秒）
  * @property {number} safety.heartbeatInterval 心跳检测间隔（毫秒）
@@ -197,12 +250,13 @@ const config = {
 
 /**
  * 速度模式映射表
+ * 映射到 -100~100 范围的系数
  * @type {Object.<string, number>}
  */
 const speedMappings = {
-  slow: 0.3,
-  normal: 0.6,
-  fast: 1.0
+  slow: 0.3,   // 最大输出 ±30
+  normal: 0.6, // 最大输出 ±60
+  fast: 1.0    // 最大输出 ±100
 }
 
 watch([position, isActive], () => {
@@ -287,7 +341,7 @@ function calculatePosition(clientX, clientY) {
   let y = clientY - rect.top - centerY
 
   const distance = Math.sqrt(x * x + y * y)
-  const maxDistance = centerX * 0.8
+  const maxDistance = centerX
 
   if (distance > maxDistance) {
     const angle = Math.atan2(y, x)
@@ -309,9 +363,21 @@ function updatePosition(clientX, clientY) {
   const pos = calculatePosition(clientX, clientY)
   position.value = { x: pos.x, y: pos.y }
 
+  // 归一化到 -1~1 范围
+  // pos.x 最大值是 centerX = rect.width/2 = size*0.6
+  // 所以除以 size*0.6 来归一化
+  const maxPos = props.size * 0.6
+  let rawX = pos.x / maxPos
+  let rawY = pos.y / maxPos
+
+  // 当值接近极限时（>0.95），直接设为 ±1，确保能达到 ±100
+  const threshold = 0.95
+  if (Math.abs(rawX) > threshold) rawX = rawX > 0 ? 1 : -1
+  if (Math.abs(rawY) > threshold) rawY = rawY > 0 ? 1 : -1
+
   const rawDirection = {
-    x: pos.x / (props.size / 2),
-    y: pos.y / (props.size / 2),
+    x: rawX,
+    y: rawY,
     strength: pos.distance
   }
 
@@ -491,114 +557,33 @@ function resetPosition() {
 
 /**
  * 处理方向键按下事件
+ * 仅保留视觉效果，不发送移动指令
  * @param {'up'|'down'|'left'|'right'} dir 方向
  * @returns {void}
  */
 function handleDirectionKeyDown(dir) {
-  // 如果当前是摇杆拖拽模式，先停止摇杆控制
-  if (controlMode.value === 'joystick' && isDragging.value) {
-    resetPosition()
-  }
-  controlMode.value = 'key'
+  // 仅设置视觉状态，不发送指令
   currentDirection.value = dir
-
-  handleDirectionKey(dir)
-
-  directionKeyInterval.value = setInterval(() => {
-    if (currentDirection.value === dir) {
-      handleDirectionKey(dir)
-    }
-  }, config.key.minInterval)
-
-  addLog(`方向键 ${dir} 按下`)
+  isActive.value = true
+  addLog(`方向键 ${dir} 按下 (仅视觉效果)`)
 }
 
 /**
  * 处理方向键释放事件
+ * 仅保留视觉效果，不发送移动指令
  * @returns {void}
  */
 function handleDirectionKeyUp() {
-  if (directionKeyInterval.value) {
-    clearTimeout(directionKeyInterval.value)
-    clearInterval(directionKeyInterval.value)
-    directionKeyInterval.value = null
-  }
-
   if (currentDirection.value) {
-    addLog(`方向键 ${currentDirection.value} 释放`)
+    addLog(`方向键 ${currentDirection.value} 释放 (仅视觉效果)`)
     currentDirection.value = ''
   }
 
-  position.value = { x: 0, y: 0 }
   if (!isDragging.value) {
     isActive.value = false
   }
-  direction.value = { x: 0, y: 0, strength: 0 }
 
   updateKnobStyle()
-
-  emit('stop')
-  lastCommandTime.value = Date.now()
-  addLog('方向键回正')
-}
-
-/**
- * 根据方向键输入计算并发送方向数据
- * @param {'up'|'down'|'left'|'right'} dir 方向
- * @returns {void}
- */
-function handleDirectionKey(dir) {
-  if (currentDirection.value !== dir) {
-    return
-  }
-
-  let x = 0
-  let y = 0
-
-  switch (dir) {
-    case 'up':
-      y = -1
-      break
-    case 'down':
-      y = 1
-      break
-    case 'left':
-      x = -1
-      break
-    case 'right':
-      x = 1
-      break
-  }
-
-  const speedMultiplier = speedMappings[props.speedMode]
-  const outputSpeed = config.key.fixedSpeed * speedMultiplier
-
-  // 方向键模式下，不修改 position（摇杆头保持在中心），只发送指令
-  // position.value 保持 { x: 0, y: 0 }
-
-  isActive.value = true
-
-  const fixedSpeed = outputSpeed
-
-  const newDirection = {
-    x: x * fixedSpeed,
-    y: y * fixedSpeed,
-    strength: fixedSpeed
-  }
-
-  direction.value = newDirection
-  isAutoStopEnabled.value = true
-
-  const directionWithSource = {
-    ...newDirection,
-    source: 'key'
-  }
-
-  emit('move', directionWithSource)
-  lastDirection.value = { ...newDirection }
-  lastCommandTime.value = Date.now()
-
-  addLog(`方向键 ${dir} 触发`)
 }
 
 /**

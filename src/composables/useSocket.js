@@ -22,9 +22,6 @@ function parseSocketUrl(url) {
 
 const { host: WS_SERVER_HOST, port: WS_SERVER_PORT } = parseSocketUrl(SOCKET_URL)
 
-// 开发环境使用相对路径走 Vite 代理，生产环境使用完整 URL
-const WS_BASE_URL = isDev ? '' : `http://${WS_SERVER_HOST}:${WS_SERVER_PORT}`
-
 function useSocketInternal() {
   const client = ref(null)
   const connected = ref(false)

@@ -78,6 +78,23 @@ export default defineConfig(({ mode }) => {
               console.error('[WS代理错误]', err.message, req.url)
             })
           }
+        },
+        // ZLMediaKit WebRTC 客户端脚本代理
+        '/zlm-webrtc': {
+          target: `http://${serverIp}:3800`,
+          changeOrigin: true,
+          configure: (proxy, options) => {
+            proxy.on('proxyReq', (proxyReq, req, res) => {
+              console.log('[ZLM代理]', req.method, req.url, '->', options.target + req.url)
+            })
+            proxy.on('proxyRes', (proxyRes, req, res) => {
+              console.log('[ZLM代理响应]', proxyRes.statusCode, req.url)
+            })
+            proxy.on('error', (err, req, res) => {
+              console.error('[ZLM代理错误]', err.message, req.url)
+            })
+          },
+          rewrite: (path) => path.replace(/^\/zlm-webrtc/, '')
         }
       }
     }

@@ -11,6 +11,15 @@
       <el-icon v-if="status === 'connecting'" class="loading"><Loading /></el-icon>
       <el-icon v-else-if="status === 'error'" class="error"><CircleClose /></el-icon>
       <span class="status-text">{{ statusText }}</span>
+      <el-button
+        v-if="status === 'error'"
+        type="primary"
+        size="small"
+        @click="retryInit"
+        class="retry-btn"
+      >
+        重试连接
+      </el-button>
     </div>
     <!-- 视频统计信息 -->
     <!-- <div v-if="showStats && stats" class="stats-overlay">
@@ -40,7 +49,7 @@
 
 <script setup>
 import { ref, watch, onUnmounted } from 'vue'
-import { ElIcon } from 'element-plus'
+import { ElIcon, ElButton } from 'element-plus'
 import { Loading, CircleClose } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -68,16 +77,43 @@ const prevJitterDelay = ref(0)
 const prevJitterCount = ref(0)
 
 // 加载 ZLMRTCClient
-function loadScript(src) {
+function loadScript(src, timeout = 10000) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) {
       resolve()
       return
     }
+
     const script = document.createElement('script')
     script.src = src
-    script.onload = resolve
-    script.onerror = reject
+
+    // 设置超时
+    const timeoutId = setTimeout(() => {
+      cleanup()
+      reject(new Error('加载超时，请检查 ZLMediaKit 服务器状态'))
+    }, timeout)
+
+    function cleanup() {
+      clearTimeout(timeoutId)
+      script.onload = null
+      script.onerror = null
+    }
+
+    script.onload = () => {
+      cleanup()
+      resolve()
+    }
+
+    script.onerror = (e) => {
+      cleanup()
+      // 区分不同类型的错误
+      if (e.type === 'error') {
+        reject(new Error('无法连接到 ZLMediaKit 服务器 (502/网络错误)，请检查：\n1. 服务器是否运行\n2. WebRTC 模块是否启用\n3. 端口 3800 是否可访问'))
+      } else {
+        reject(new Error('脚本加载失败'))
+      }
+    }
+
     document.head.appendChild(script)
   })
 }
@@ -196,10 +232,35 @@ async function initWebRTC() {
 
   try {
     // 加载 ZLMRTCClient.js（从 ZLMediaKit 服务器获取）
-    const zlmHost = new URL(props.url).host
-    await loadScript(`http://${zlmHost}/webrtc/ZLMRTCClient.js`)
+    // 开发环境使用代理路径，避免跨域问题
+    const isDev = import.meta.env.DEV
 
-    const ZLMRTCClient = window.ZLMRTCClient
+    // 获取 ZLM 服务器地址（处理相对路径代理 URL）
+    let zlmHost
+    try {
+      zlmHost = new URL(props.url).host
+    } catch (e) {
+      // 如果是相对路径（如 /zlm-webrtc/...），使用当前页面 host
+      zlmHost = window.location.host
+    }
+
+    const scriptUrl = isDev
+      ? '/zlm-webrtc/webrtc/ZLMRTCClient.js'
+      : `http://${zlmHost}/webrtc/ZLMRTCClient.js`
+
+    console.log('[WebRTC] 加载脚本:', scriptUrl, isDev ? '(开发环境-代理)' : '(生产环境-直连)')
+    await loadScript(scriptUrl)
+
+    // 等待 ZLMRTCClient 初始化（脚本加载后可能需要延迟才能挂载到 window）
+    let ZLMRTCClient = window.ZLMRTCClient
+    if (!ZLMRTCClient) {
+      // 轮询等待，最多等待 3 秒
+      for (let i = 0; i < 30; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        ZLMRTCClient = window.ZLMRTCClient
+        if (ZLMRTCClient) break
+      }
+    }
     if (!ZLMRTCClient) {
       throw new Error('ZLMRTCClient 加载失败')
     }
@@ -273,7 +334,15 @@ async function initWebRTC() {
   } catch (err) {
     console.error('[WebRTC] 初始化失败:', err)
     status.value = 'error'
-    statusText.value = '初始化失败: ' + (err?.message || '未知错误')
+    // 显示更友好的错误信息
+    const errorMsg = err?.message || '未知错误'
+    if (errorMsg.includes('502') || errorMsg.includes('无法连接')) {
+      statusText.value = '媒体服务器未启动'
+    } else if (errorMsg.includes('超时')) {
+      statusText.value = '连接超时，请重试'
+    } else {
+      statusText.value = '初始化失败: ' + errorMsg
+    }
   }
 }
 
@@ -304,9 +373,35 @@ onUnmounted(() => {
   stop()
 })
 
+// 重试初始化
+function retryInit() {
+  // 清除之前加载的脚本，强制重新加载
+  const isDev = import.meta.env.DEV
+  const scriptUrl = isDev
+    ? '/zlm-webrtc/webrtc/ZLMRTCClient.js'
+    : (() => {
+        try {
+          const zlmHost = new URL(props.url).host
+          return `http://${zlmHost}/webrtc/ZLMRTCClient.js`
+        } catch (e) {
+          return null
+        }
+      })()
+
+  if (scriptUrl) {
+    const existingScript = document.querySelector(`script[src="${scriptUrl}"]`)
+    if (existingScript) {
+      existingScript.remove()
+    }
+  }
+  // 重新初始化
+  initWebRTC()
+}
+
 defineExpose({
   initWebRTC,
-  stop
+  stop,
+  retryInit
 })
 </script>
 
@@ -351,6 +446,13 @@ defineExpose({
 
 .status-text {
   font-size: 14px;
+  text-align: center;
+  padding: 0 16px;
+  line-height: 1.5;
+}
+
+.retry-btn {
+  margin-top: 12px;
 }
 
 /* 统计信息样式 */

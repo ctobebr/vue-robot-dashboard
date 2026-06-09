@@ -111,8 +111,8 @@ export function useRobotControl() {
    *     → cmd_velx = -left.y × 100   范围 [-100, 100]
    *   左摇杆 x轴 (右推=正值 / 左推=负值) → cmd_vely (左移=正值 / 右移=负值)
    *     → cmd_vely = -left.x × 100   范围 [-100, 100]
-   *   右摇杆 x轴 (右推=正值/顺时针 / 左推=负值/逆时针) → cmd_yaw (顺时针=正值 / 逆时针=负值)
-   *     → cmd_yaw = right.x × 100    范围 [-100, 100]
+   *   右摇杆 x轴 (右推=正值 / 左推=负值) → cmd_yaw (左转=正值 / 右转=负值)
+   *     → cmd_yaw = -right.x × 100   范围 [-100, 100]
    *
    * @param {Direction} direction 方向数据对象
    * @param {'left'|'right'} side 摇杆侧边
@@ -132,7 +132,7 @@ export function useRobotControl() {
 
     const cmdVelX = clamp(-left.y * 100, -100, 100)
     const cmdVelY = clamp(-left.x * 100, -100, 100)
-    const cmdYaw = clamp(right.x * 100, -100, 100)
+    const cmdYaw = clamp(-right.x * 100, -100, 100)
 
     // 使用 protocol.js 创建消息
     const message = createSportControlMessage(cmdVelX, cmdVelY, cmdYaw)
@@ -176,7 +176,7 @@ export function useRobotControl() {
 
     const cmdVelX = clamp(-left.y * 100, -100, 100)
     const cmdVelY = clamp(-left.x * 100, -100, 100)
-    const cmdYaw = clamp(right.x * 100, -100, 100)
+    const cmdYaw = clamp(-right.x * 100, -100, 100)
 
     // 使用 protocol.js 创建消息
     const message = createSportControlMessage(cmdVelX, cmdVelY, cmdYaw)

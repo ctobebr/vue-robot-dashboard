@@ -49,6 +49,7 @@
         :size="120"
         color="#67c23a"
         :showStatus="joystickShowStatus"
+        :showDirectionKeys="{ up: false, down: false, left: true, right: true }"
         @move="handleRightJoystickMove"
         @stop="handleRightJoystickStop"
       />
