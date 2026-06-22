@@ -415,10 +415,7 @@ async function handleConfirmResetMapping() {
     await deviceStore.resetMapping()
     resetMappingDialogVisible.value = false
 
-    // 调用 Viewer 的重置方法，清空点云数据（替代 reload）
-    if (props.viewerRef && props.viewerRef.resetViewer) {
-      props.viewerRef.resetViewer()
-    }
+    // resetViewer 由 Viewer.vue 中 recording watch 自动调用（resetMapping 会切换 recording 状态）
   } catch (error) {
     ElNotification({
       title: t('error'),

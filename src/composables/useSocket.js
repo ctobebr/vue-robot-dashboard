@@ -207,7 +207,7 @@ function useSocketInternal() {
     client.value = stompClient
   }
 
-  function subscribe(deviceId, topic, callback) {
+  function subscribe(deviceId, topic, callback, options = {}) {
     if (!client.value || !connected.value) return null
 
     const subKey = `${deviceId}-${topic}`
@@ -218,15 +218,22 @@ function useSocketInternal() {
       return subscriptions.value.get(subKey)
     }
 
-    const destination = `/topic/device/${deviceId}/${topic}`
+    // 支持通过 options.prefix 指定 STOMP 目的地前缀
+    // 默认 'topic' → /topic/device/{deviceId}/{topic}
+    // 'queue'   → /queue/device/{deviceId}/{topic}（如位姿数据 /queue/device/{id}/pose）
+    const prefix = options.prefix || 'topic'
+    const destination = `/${prefix}/device/${deviceId}/${topic}`
     const token = localStorage.getItem('token')
 
-    // 发送订阅请求
-    client.value.publish({
-      destination: '/app/device/subscribe',
-      body: JSON.stringify({ deviceId }),
-      headers: { Authorization: `Bearer ${token || ''}` }
-    })
+    // 仅对 topic 类型的订阅发送 /app/device/subscribe 请求
+    // queue 类型（如位姿数据）由后端在设备订阅后自动推送，无需重复发送
+    if (prefix === 'topic') {
+      client.value.publish({
+        destination: '/app/device/subscribe',
+        body: JSON.stringify({ deviceId }),
+        headers: { Authorization: `Bearer ${token || ''}` }
+      })
+    }
 
     const subscription = client.value.subscribe(destination, (message) => {
       try {
@@ -237,7 +244,7 @@ function useSocketInternal() {
     })
 
     subscriptions.value.set(subKey, subscription)
-    log('设备已订阅', { deviceId, topic })
+    log('设备已订阅', { deviceId, topic, destination })
     return subscription
   }
 

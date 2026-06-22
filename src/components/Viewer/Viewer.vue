@@ -125,6 +125,9 @@ function createPointCloudMaterial() {
       },
       opacity: { value: settingStore.appearance.points.alpha },
       shape: { value: settingStore.appearance.points.shape === 'circle' ? 1.0 : 0.0 },
+      // 第三人称暖色调：最新10帧橙红色，渐变过渡到原始颜色
+      warmColor: { value: new THREE.Color('#FF6B35') },
+      warmBlend: { value: 0.0 },
     },
     vertexShader: `
       uniform float size;
@@ -189,6 +192,8 @@ function createPointCloudMaterial() {
       uniform vec3 clipBoxSize2;
       uniform float opacity;
       uniform float shape;
+      uniform vec3 warmColor;
+      uniform float warmBlend;
       
       varying vec3 vPosition;
       varying vec3 vColor;
@@ -210,7 +215,9 @@ function createPointCloudMaterial() {
         } else {
           if(absLocalPosition.x > halfSize.x || absLocalPosition.y > halfSize.y || absLocalPosition.z > halfSize.z) {discard;}
         }
-        gl_FragColor = vec4(vColor, opacity);
+        // 暖色调混合：warmBlend=0时使用原始颜色，warmBlend=1时使用暖色
+        vec3 finalColor = mix(vColor, warmColor, warmBlend);
+        gl_FragColor = vec4(finalColor, opacity);
       }
     `,
     vertexColors: true,
@@ -280,6 +287,9 @@ function createFootprint() {
   footprintLine = new Line2(geometry, material)
   footprintLine.computeLineDistances()
   footprintLine.visible = visible
+  // 禁用视锥裁剪：LineGeometry 更新 positions 后 boundingSphere 不会自动更新，
+  // 切换视角/跟随时相机移动可能导致轨迹被错误裁剪
+  footprintLine.frustumCulled = false
   scene.add(footprintLine)
 }
 
@@ -290,11 +300,18 @@ function updateFootprint(point) {
   if (distance >= 0.1) {
     footprintPoints.push(point)
     if (footprintLine) {
+      // 释放旧几何体，创建新几何体替换
+      // 直接调用 setPositions 替换属性对象后，渲染器内部缓存可能不检测变更，
+      // 导致新增的轨迹点不渲染。销毁旧 geometry 并创建新 geometry 可确保渲染器重新初始化缓冲区。
+      footprintLine.geometry.dispose()
+
+      const geometry = new LineGeometry()
       const positions = []
       footprintPoints.forEach(p => {
         positions.push(p.x, p.y, p.z)
       })
-      footprintLine.geometry.setPositions(positions)
+      geometry.setPositions(positions)
+      footprintLine.geometry = geometry
       footprintLine.computeLineDistances()
     }
   }
@@ -357,6 +374,7 @@ function createPointCloud() {
   })
   thirdPersonFrames.forEach(frame => {
     if (frame.geometry) frame.geometry.dispose()
+    if (frame.material) frame.material.dispose()
   })
   firstPersonFrames = []
   thirdPersonFrames = []
@@ -391,6 +409,7 @@ function updatePointCloudVisibility() {
  * 将新帧的点云数据添加到两个视角的数组中
  * 同一帧数据同时添加到 firstPersonFrames 和 thirdPersonFrames
  * 但两个数组有不同的上限（100 vs 3000）
+ * 第三人称帧使用克隆材质以支持暖色调新旧数据区分
  */
 function addPointCloudFrame(positionArray, colorArray, vertexCount) {
   if (!pointCloudMaterial || !positionArray || vertexCount === 0) return
@@ -413,7 +432,7 @@ function addPointCloudFrame(positionArray, colorArray, vertexCount) {
 
   geometry.computeBoundingSphere()
 
-  // 创建独立的 Points 对象
+  // 创建独立的 Points 对象（第一人称使用共享材质，warmBlend=0）
   const points = new THREE.Points(geometry, pointCloudMaterial)
 
   // 添加到第一视角数组（最大100帧）
@@ -424,14 +443,19 @@ function addPointCloudFrame(positionArray, colorArray, vertexCount) {
   }
 
   // 添加到第三视角数组（最大3000帧）
-  // 注意：需要为第三视角创建独立的 geometry 和 points
+  // 第三人称使用克隆材质以支持暖色调区分新旧数据
   const geometry3 = geometry.clone()
-  const points3 = new THREE.Points(geometry3, pointCloudMaterial)
-  thirdPersonFrames.push({ geometry: geometry3, points: points3 })
+  const material3 = pointCloudMaterial.clone()
+  const points3 = new THREE.Points(geometry3, material3)
+  thirdPersonFrames.push({ geometry: geometry3, points: points3, material: material3 })
   while (thirdPersonFrames.length > MAX_THIRD_PERSON_FRAMES) {
     const oldest = thirdPersonFrames.shift()
     oldest.geometry.dispose()
+    if (oldest.material) oldest.material.dispose()
   }
+
+  // 更新所有第三人称帧的暖色调混合值
+  updateThirdPersonWarmBlend()
 
   // 根据当前视角更新显示
   updatePointCloudVisibility()
@@ -439,6 +463,27 @@ function addPointCloudFrame(positionArray, colorArray, vertexCount) {
   const currentFrames = settingStore.camera.isFirstPerson ? firstPersonFrames : thirdPersonFrames
   debugStats.totalPoints = currentFrames.reduce((sum, f) =>
     sum + (f.geometry.attributes.position?.count || 0), 0)
+}
+
+/**
+ * 更新第三人称帧的暖色调混合值
+ * 最新10帧：warmBlend=1.0（全暖色橙红）
+ * 第10-20帧：warmBlend 从 1.0 渐变到 0.0
+ * 更早的帧：warmBlend=0.0（原始颜色）
+ */
+function updateThirdPersonWarmBlend() {
+  const total = thirdPersonFrames.length
+  thirdPersonFrames.forEach((frame, index) => {
+    if (!frame.material) return
+    const ageFromEnd = total - 1 - index // 0 = 最新帧
+    let warmBlend = 0.0
+    if (ageFromEnd < 10) {
+      warmBlend = 1.0
+    } else if (ageFromEnd < 20) {
+      warmBlend = (20 - ageFromEnd) / 10
+    }
+    frame.material.uniforms.warmBlend.value = warmBlend
+  })
 }
 
 function updatePointCloudMaterial() {
@@ -484,6 +529,23 @@ function updatePointCloudMaterial() {
     1.2 * maxHeight * (height[1] - height[0]) * 0.01
   )
   pointCloudMaterial.uniforms.clipBoxReverse2.value = reverse
+
+  // 同步更新所有第三人称帧的克隆材质（warmBlend 由 updateThirdPersonWarmBlend 管理，不覆盖）
+  thirdPersonFrames.forEach(frame => {
+    if (!frame.material) return
+    frame.material.uniforms.size.value = size
+    frame.material.uniforms.opacity.value = alpha
+    frame.material.uniforms.sizeAttenuation.value = sizeAttenuation
+    frame.material.uniforms.shape.value = shape === 'circle' ? 1.0 : 0.0
+    frame.material.uniforms.clipBoxPosition1.value.copy(pointCloudMaterial.uniforms.clipBoxPosition1.value)
+    frame.material.uniforms.clipBoxRotation1.value.copy(pointCloudMaterial.uniforms.clipBoxRotation1.value)
+    frame.material.uniforms.clipBoxScale1.value.copy(pointCloudMaterial.uniforms.clipBoxScale1.value)
+    frame.material.uniforms.clipBoxInside1.value = clip.inside
+    frame.material.uniforms.clipBoxEnabled1.value = clip.enabled
+    frame.material.uniforms.clipBoxPosition2.value.copy(pointCloudMaterial.uniforms.clipBoxPosition2.value)
+    frame.material.uniforms.clipBoxSize2.value.copy(pointCloudMaterial.uniforms.clipBoxSize2.value)
+    frame.material.uniforms.clipBoxReverse2.value = reverse
+  })
 }
 
 function animate() {
@@ -545,6 +607,7 @@ function handleResize() {
 
 // 订阅引用
 let baseStatusSub = null
+let poseSub = null
 
 // 标记是否已经订阅，防止重复订阅
 let hasSubscribed = false
@@ -774,6 +837,31 @@ function setupSocketListeners() {
           updateLocation([x, y, z], [euler.x, euler.y, euler.z])
         }
       })
+
+      // 订阅 SLAM 位姿数据（CMD 1002）
+      // 根据"设备实时位置姿态上报"文档，位姿数据通过 /queue/device/{deviceId}/pose 独立通道推送
+      // 消息格式: { type: "POSE_DATA", pose: { x, y, z, orientation_x, orientation_y, orientation_z, orientation_w } }
+      poseSub = subscribe(deviceId, 'pose', (msg) => {
+        if (msg.type === 'POSE_DATA' && msg.pose) {
+          const { x, y, z } = msg.pose
+          const { orientation_x: qx, orientation_y: qy, orientation_z: qz, orientation_w: qw } = msg.pose
+
+          const newPoint = new THREE.Vector3(x, y, z)
+          updateFootprint(newPoint)
+
+          latestOrientation = new THREE.Quaternion(qx, qy, qz, qw)
+          latestPosition = new THREE.Vector3(x, y, z).add(
+            new THREE.Vector3(
+              settingStore.camera.offset[0],
+              settingStore.camera.offset[1],
+              settingStore.camera.offset[2]
+            )
+          )
+
+          const euler = new THREE.Euler().setFromQuaternion(latestOrientation)
+          updateLocation([x, y, z], [euler.x, euler.y, euler.z])
+        }
+      }, { prefix: 'queue' })
     }
 
     if (!isConnected || !deviceId) {
@@ -906,6 +994,8 @@ watch(
   () => deviceStore.recording,
   (isRecording) => {
     if (isRecording) {
+      // 开始录制时清空上一次的画布数据（点云、轨迹、位置标记等）
+      resetViewer()
       startFrameDataPolling()
     } else {
       stopFrameDataPolling()
@@ -923,12 +1013,13 @@ function resetViewer() {
     console.log('[Viewer] 开始重置...')
   }
 
-  // 1. 清空点云数据（释放所有帧的 geometry）
+  // 1. 清空点云数据（释放所有帧的 geometry 和 material）
   firstPersonFrames.forEach(frame => {
     if (frame.geometry) frame.geometry.dispose()
   })
   thirdPersonFrames.forEach(frame => {
     if (frame.geometry) frame.geometry.dispose()
+    if (frame.material) frame.material.dispose()
   })
   firstPersonFrames = []
   thirdPersonFrames = []
@@ -956,6 +1047,8 @@ function resetViewer() {
     footprintLine.material.dispose()
     footprintLine = null
   }
+  // 重建足迹线，确保重置后仍可见
+  createFootprint()
   if (canLog()) {
     console.log('[Viewer] 足迹数据已清空')
   }
@@ -1023,6 +1116,7 @@ onUnmounted(() => {
   // 取消STOMP订阅
   if (deviceStore.currentDevice) {
     unsubscribe(deviceStore.currentDevice, 'status')
+    unsubscribe(deviceStore.currentDevice, 'pose')
   }
 
   if (axesHelper) {
@@ -1048,12 +1142,13 @@ onUnmounted(() => {
   if (pointCloudGroup) {
     scene.remove(pointCloudGroup)
   }
-  // 释放所有帧的 geometry
+  // 释放所有帧的 geometry 和 material
   firstPersonFrames.forEach(frame => {
     if (frame.geometry) frame.geometry.dispose()
   })
   thirdPersonFrames.forEach(frame => {
     if (frame.geometry) frame.geometry.dispose()
+    if (frame.material) frame.material.dispose()
   })
   firstPersonFrames = []
   thirdPersonFrames = []

@@ -18,7 +18,7 @@ export function getWebRTCProxyUrl(url) {
 
   try {
     const urlObj = new URL(url)
-    // 将 http://192.168.1.109:3800/index/api/webrtc?xxx 转换为 /zlm-webrtc/index/api/webrtc?xxx
+    // 将 http://172.30.14.241:3800/index/api/webrtc?xxx 转换为 /zlm-webrtc/index/api/webrtc?xxx
     return `/zlm-webrtc${urlObj.pathname}${urlObj.search}`
   } catch (e) {
     console.warn('[LiveStream] WebRTC URL 转换失败:', url)
